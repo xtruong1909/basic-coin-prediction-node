@@ -108,6 +108,16 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
+def add_random_fluctuation(predicted_price, is_weekend, is_night):
+    if is_weekend and is_night:
+        fluctuation = random.uniform(-0.0015 * predicted_price, 0.0015 * predicted_price)  # 0% to 0.15%
+    elif is_night:
+        fluctuation = random.uniform(-0.003 * predicted_price, 0.003 * predicted_price)  # 0% to 0.3%
+    else:
+        fluctuation = random.uniform(-0.0005 * predicted_price, 0.0005 * predicted_price)  # 0% to 0.05%
+    
+    return predicted_price + fluctuation
+
 def train_model(token):
     time_start = datetime.now()
 
@@ -142,12 +152,15 @@ def train_model(token):
     # Combine predictions from both models
     final_predicted_price = (rf_predicted_price + gb_predicted_price) / 2
 
-    fluctuation_range = 0.01 * final_predicted_price
-    min_price = final_predicted_price - fluctuation_range
-    max_price = final_predicted_price + fluctuation_range
+    # Get current time for fluctuation adjustment
+    now = datetime.now().astimezone()  # Giờ địa phương
+    is_weekend = now.weekday() >= 5  # Thứ 7, Chủ nhật
+    is_night = now.hour >= 19 or now.hour < 7  # Từ 19 giờ đến 7 giờ sáng
 
-    price_predict = random.uniform(min_price, max_price)
-    forecast_price[token] = price_predict
+    # Adjust the final predicted price with random fluctuation
+    adjusted_price = add_random_fluctuation(final_predicted_price, is_weekend, is_night)
+
+    forecast_price[token] = adjusted_price
 
     print(f"Forecasted price for {token}: {forecast_price[token]}")
 

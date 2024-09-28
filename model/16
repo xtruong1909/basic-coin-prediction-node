@@ -107,6 +107,25 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
+def apply_random_fluctuation(predicted_price):
+    now = datetime.now()
+    current_hour = now.hour
+    current_weekday = now.weekday()
+
+    # Điều kiện 1: Thứ 7 và Chủ Nhật từ 19 giờ đến 7 giờ sáng hôm sau
+    if current_weekday >= 5 and (current_hour >= 19 or current_hour < 7):
+        fluctuation_range = 0.0015  # 0.15%
+    # Điều kiện 2: Từ Thứ 2 đến Thứ 6 từ 19 giờ đến 7 giờ sáng hôm sau
+    elif current_weekday < 5 and (current_hour >= 19 or current_hour < 7):
+        fluctuation_range = 0.003  # 0.3%
+    # Các trường hợp khác
+    else:
+        fluctuation_range = 0.0005  # 0.05%
+
+    # Áp dụng biên độ ngẫu nhiên
+    fluctuation = random.uniform(-fluctuation_range, fluctuation_range)
+    return predicted_price * (1 + fluctuation)
+
 def train_model(token):
     time_start = datetime.now()
     price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
@@ -123,11 +142,8 @@ def train_model(token):
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
 
-    fluctuation_range = 0.01 * predicted_price
-    min_price = predicted_price - fluctuation_range
-    max_price = predicted_price + fluctuation_range
-
-    price_predict = random.uniform(min_price, max_price)
+    # Áp dụng biến động ngẫu nhiên vào giá trị dự đoán
+    price_predict = apply_random_fluctuation(predicted_price)
     forecast_price[token] = price_predict
 
     print(f"Forecasted price for {token}: {forecast_price[token]}")

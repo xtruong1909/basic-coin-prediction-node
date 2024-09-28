@@ -107,6 +107,22 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
+def calculate_random_adjustment():
+    now = datetime.now()
+    weekday = now.weekday()  # Thứ 2 là 0, Chủ nhật là 6
+    hour = now.hour
+    adjustment = 0.0
+
+    if (19 <= hour or hour < 7):  # Khoảng thời gian từ 19h đến 7h
+        if weekday == 5 or weekday == 6:  # Thứ 7 và Chủ nhật
+            adjustment = random.uniform(-0.0015, 0.0015)
+        else:  # Thứ 2 đến Thứ 6
+            adjustment = random.uniform(-0.003, 0.003)
+    else:
+        adjustment = random.uniform(-0.0005, 0.0005)
+
+    return adjustment
+
 def train_model(token):
     time_start = datetime.now()
     price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
@@ -122,6 +138,10 @@ def train_model(token):
 
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
+
+    # Áp dụng điều chỉnh ngẫu nhiên
+    adjustment = calculate_random_adjustment()
+    predicted_price += predicted_price * adjustment
 
     fluctuation_range = 0.01 * predicted_price
     min_price = predicted_price - fluctuation_range

@@ -12,8 +12,8 @@ import retrying
 forecast_price = {}
 
 binance_data_path = os.path.join(data_base_path, "binance/futures-klines")
-MAX_DATA_SIZE = 1000  # Giới hạn số lượng dữ liệu tối đa khi lưu trữ
-INITIAL_FETCH_SIZE = 1000  # Số lượng nến lần đầu tải về
+MAX_DATA_SIZE = 1000
+INITIAL_FETCH_SIZE = 1000
 
 @retrying.retry(wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=5)
 def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
@@ -108,6 +108,21 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
+def get_random_adjustment():
+    current_time = datetime.now()
+    current_hour = current_time.hour
+    current_weekday = current_time.weekday()
+
+    # Kiểm tra xem có nằm trong khoảng từ 19h đến 7h GMT+7 hay không
+    in_night_hours = (current_hour >= 19 or current_hour < 7)
+
+    if in_night_hours and current_weekday in [5, 6]:  # Thứ 7, Chủ nhật
+        return random.uniform(-0.0015, 0.0015)  # ±0.15%
+    elif in_night_hours:  # Các ngày từ Thứ 2 đến Thứ 6
+        return random.uniform(-0.003, 0.003)  # ±0.3%
+    else:
+        return random.uniform(-0.0005, 0.0005)  # ±0.05%
+
 def train_model(token):
     time_start = datetime.now()
     price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
@@ -122,17 +137,17 @@ def train_model(token):
     Z = linkage(scaled_data, 'ward')
     clusters = fcluster(Z, t=1.5, criterion='distance')
 
-    # For simplicity, we use the average price within each cluster as the forecast
+    # Sử dụng trung bình trong các cluster để dự đoán
     cluster_means = pd.Series(scaled_data.flatten()).groupby(clusters).mean()
     predicted_price = cluster_means.mean()
 
     predicted_price = scaler.inverse_transform([[predicted_price]])[0][0]
-    fluctuation_range = 0.01 * predicted_price
-    min_price = predicted_price - fluctuation_range
-    max_price = predicted_price + fluctuation_range
-
-    price_predict = random.uniform(min_price, max_price)
-    forecast_price[token] = price_predict
+    
+    # Điều chỉnh giá trị dự đoán với biên độ ngẫu nhiên
+    random_adjustment = get_random_adjustment()
+    final_price = predicted_price * (1 + random_adjustment)
+    
+    forecast_price[token] = final_price
 
     print(f"Forecasted price for {token}: {forecast_price[token]}")
     time_end = datetime.now()

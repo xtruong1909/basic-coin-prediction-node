@@ -7,6 +7,7 @@ from config import data_base_path
 import random
 import requests
 import retrying
+from pytz import timezone  # Thêm để xử lý múi giờ
 
 forecast_price = {}
 
@@ -107,6 +108,28 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
+# Hàm để điều chỉnh biên độ ngẫu nhiên
+def adjust_prediction(predicted_price):
+    current_time = datetime.now(timezone('Asia/Bangkok'))  # GMT +7
+    day_of_week = current_time.weekday()  # 0=Monday, 6=Sunday
+    current_hour = current_time.hour
+
+    # Trường hợp 1: Từ 19h đến 7h sáng thứ 7 và chủ nhật
+    if (day_of_week == 5 and current_hour >= 19) or (day_of_week == 6 and current_hour < 7) or \
+       (day_of_week == 6 and current_hour >= 19) or (day_of_week == 0 and current_hour < 7):
+        random_adjustment = random.uniform(-0.0015, 0.0015)  # ±0.15%
+
+    # Trường hợp 2: Từ 19h đến 7h sáng từ thứ 2 đến thứ 6
+    elif (0 <= day_of_week <= 4 and current_hour >= 19) or (1 <= day_of_week <= 5 and current_hour < 7):
+        random_adjustment = random.uniform(-0.003, 0.003)  # ±0.3%
+
+    # Các trường hợp còn lại
+    else:
+        random_adjustment = random.uniform(-0.0005, 0.0005)  # ±0.05%
+
+    adjusted_price = predicted_price * (1 + random_adjustment)
+    return adjusted_price
+
 def train_model(token):
     time_start = datetime.now()
     price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
@@ -123,14 +146,12 @@ def train_model(token):
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
 
-    fluctuation_range = 0.01 * predicted_price
-    min_price = predicted_price - fluctuation_range
-    max_price = predicted_price + fluctuation_range
+    # Điều chỉnh giá trị dự đoán dựa trên điều kiện về thời gian
+    adjusted_price = adjust_prediction(predicted_price)
 
-    price_predict = random.uniform(min_price, max_price)
-    forecast_price[token] = price_predict
-
+    forecast_price[token] = adjusted_price
     print(f"Forecasted price for {token}: {forecast_price[token]}")
+    
     time_end = datetime.now()
     print(f"Time elapsed forecast: {time_end - time_start}")
 
