@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
 from sklearn.linear_model import BayesianRidge
-from config import data_base_path
+from config import data_base_path  # Import từ config.py
 import random
 import requests
 import retrying
@@ -19,7 +19,7 @@ INITIAL_FETCH_SIZE = 1000  # Số lượng nến lần đầu tải về
 def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
     try:
         base_url = "https://fapi.binance.com"
-        endpoint = f"/fapi/v1/klines"
+        endpoint = "/fapi/v1/klines"
         params = {
             "symbol": symbol,
             "interval": interval,
@@ -35,7 +35,7 @@ def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=No
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f'Failed to fetch prices for {symbol} from Binance API: {str(e)}')
+        print(f'Lỗi khi tải giá cho {symbol} từ Binance API: {str(e)}')
         raise e
 
 def download_data(token):
@@ -51,7 +51,7 @@ def download_data(token):
         end_time = int(current_datetime.timestamp() * 1000)
         new_data = fetch_prices(symbols, interval, 100, start_time, end_time)
     else:
-        start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE*5)).timestamp() * 1000)
+        start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE * 5)).timestamp() * 1000)
         end_time = int(current_datetime.timestamp() * 1000)
         new_data = fetch_prices(symbols, interval, INITIAL_FETCH_SIZE, start_time, end_time)
 
@@ -74,14 +74,14 @@ def download_data(token):
     if not os.path.exists(download_path):
         os.makedirs(download_path)
     combined_df.to_csv(file_path, index=False)
-    print(f"Updated data for {token} saved to {file_path}. Total rows: {len(combined_df)}")
+    print(f"Dữ liệu cho {token} đã được cập nhật và lưu tại {file_path}. Tổng số dòng: {len(combined_df)}")
 
 def format_data(token):
     path = os.path.join(binance_data_path, token.lower())
     file_path = os.path.join(path, f"{token.lower()}_5m_data.csv")
 
     if not os.path.exists(file_path):
-        print(f"No data file found for {token}")
+        print(f"Không tìm thấy tệp dữ liệu cho {token}")
         return
 
     df = pd.read_csv(file_path)
@@ -104,14 +104,14 @@ def format_data(token):
 
         output_path = os.path.join(data_base_path, f"{token.lower()}_price_data.csv")
         df.sort_index().to_csv(output_path)
-        print(f"Formatted data saved to {output_path}")
+        print(f"Dữ liệu đã được định dạng và lưu tại {output_path}")
     else:
-        print(f"Required columns are missing in {file_path}. Skipping this file.")
+        print(f"Các cột yêu cầu bị thiếu trong {file_path}. Bỏ qua tệp này.")
 
 def get_random_fluctuation(predicted_price):
     current_time = datetime.now(pytz.timezone('Asia/Bangkok'))
     hour = current_time.hour
-    day_of_week = current_time.weekday()  # 0: Monday, 6: Sunday
+    day_of_week = current_time.weekday()  # 0: Thứ Hai, 6: Chủ Nhật
 
     if (day_of_week in [5, 6] and (hour >= 19 or hour < 7)):  # Thứ 7 và Chủ nhật
         fluctuation_percentage = random.uniform(-0.0015, 0.0015)
@@ -141,9 +141,9 @@ def train_model(token):
     price_predict = get_random_fluctuation(predicted_price)
     forecast_price[token] = price_predict
 
-    print(f"Forecasted price for {token}: {forecast_price[token]}")
+    print(f"Giá dự đoán cho {token}: {forecast_price[token]}")
     time_end = datetime.now()
-    print(f"Time elapsed forecast: {time_end - time_start}")
+    print(f"Thời gian dự đoán: {time_end - time_start}")
 
 def update_data():
     tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
