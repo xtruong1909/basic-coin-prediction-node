@@ -1,1 +1,3 @@
-ENV_LOADED=false
+ALLORA_OFFCHAIN_NODE_CONFIG_JSON='{"wallet":{"addressKeyName":"test","addressRestoreMnemonic":"advance sad bronze adapt fabric woman early ask guide scissors parent sing","alloraHomeDir":"","gas":"auto","gasAdjustment":1.5,"nodeRpc":"https://rpc.ankr.com/allora_testnet","maxRetries":3,"delay":5,"submitTx":true},"worker":[{"top>
+NAME=test
+ENV_LOADED=true
