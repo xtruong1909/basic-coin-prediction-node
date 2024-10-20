@@ -14,52 +14,46 @@ forecast_price = {}
 binance_data_path = os.path.join(data_base_path, "binance/futures-klines")
 MAX_DATA_SIZE = 1000  # Giới hạn số lượng dữ liệu tối đa khi lưu trữ
 INITIAL_FETCH_SIZE = 1000  # Số lượng nến lần đầu tải về
+COINGECKO_API_KEY = "CG-8MtvACYdTwpB32DpjhLgeeVb"
 
 @retrying.retry(wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=5)
-def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
+def fetch_prices(token, days=1, interval="minute"):  # interval can be "minute" or "hour"
     try:
-        base_url = "https://fapi.binance.com"
-        endpoint = f"/fapi/v1/klines"
+        base_url = "https://api.coingecko.com/api/v3/coins"
+        endpoint = f"/{token}/market_chart"
         params = {
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit
+            "vs_currency": "usd",
+            "days": days,
+            "interval": interval
         }
-        if start_time:
-            params['startTime'] = start_time
-        if end_time:
-            params['endTime'] = end_time
+        headers = {
+            "Authorization": f"Bearer {COINGECKO_API_KEY}"
+        }
 
         url = base_url + endpoint
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, headers=headers)
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        return data["prices"]
     except Exception as e:
-        print(f'Failed to fetch prices for {symbol} from Binance API: {str(e)}')
+        print(f'Failed to fetch prices for {token} from CoinGecko API: {str(e)}')
         raise e
 
 def download_data(token):
-    symbols = f"{token.upper()}USDT"
-    interval = "5m"
+    interval = "minute"
+    days = 1
     current_datetime = datetime.now()
     download_path = os.path.join(binance_data_path, token.lower())
     
     file_path = os.path.join(download_path, f"{token.lower()}_5m_data.csv")
 
     if os.path.exists(file_path):
-        start_time = int((current_datetime - timedelta(minutes=500)).timestamp() * 1000)
-        end_time = int(current_datetime.timestamp() * 1000)
-        new_data = fetch_prices(symbols, interval, 100, start_time, end_time)
+        new_data = fetch_prices(token, days, interval)
     else:
-        start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE*5)).timestamp() * 1000)
-        end_time = int(current_datetime.timestamp() * 1000)
-        new_data = fetch_prices(symbols, interval, INITIAL_FETCH_SIZE, start_time, end_time)
+        new_data = fetch_prices(token, days, interval)
 
-    new_df = pd.DataFrame(new_data, columns=[
-        "start_time", "open", "high", "low", "close", "volume", "close_time",
-        "quote_asset_volume", "number_of_trades", "taker_buy_base_asset_volume", 
-        "taker_buy_quote_asset_volume", "ignore"
-    ])
+    new_df = pd.DataFrame(new_data, columns=["timestamp", "close"])
+    new_df["start_time"] = pd.to_datetime(new_df["timestamp"], unit='ms')
 
     if os.path.exists(file_path):
         old_df = pd.read_csv(file_path)
@@ -87,17 +81,13 @@ def format_data(token):
     df = pd.read_csv(file_path)
 
     columns_to_use = [
-        "start_time", "open", "high", "low", "close", "volume",
-        "close_time", "quote_asset_volume", "number_of_trades",
-        "taker_buy_base_asset_volume", "taker_buy_quote_asset_volume"
+        "start_time", "close"
     ]
 
     if set(columns_to_use).issubset(df.columns):
         df = df[columns_to_use]
         df.columns = [
-            "start_time", "open", "high", "low", "close", "volume",
-            "end_time", "quote_asset_volume", "n_trades", 
-            "taker_volume", "taker_volume_usd"
+            "start_time", "close"
         ]
         df.index = pd.to_datetime(df["start_time"], unit='ms')
         df.index.name = "date"
@@ -141,7 +131,15 @@ def train_model(token):
     is_weekend = now.weekday() >= 5  # Thứ 7, Chủ nhật
     is_night = now.hour >= 19 or now.hour < 7  # Từ 19 giờ đến 7 giờ sáng
 
-    adjusted_price = calculate_random_fluctuation(forecast_mean, is_weekend, is_night)
+    adjusted_price = calculate_weighted_average_price(forecast_mean, token, is_weekend, is_night)
+
+    # Điều chỉnh giá dự đoán cuối cùng
+    avg_previous_price = df['close'].mean()
+    if avg_previous_price < forecast_mean:
+        adjustment = random.uniform(-0.0005 * forecast_mean, 0)  # Giảm từ 0% đến 0.05%
+    else:
+        adjustment = random.uniform(0, 0.0005 * forecast_mean)  # Tăng từ 0% đến 0.05%
+    adjusted_price += adjustment
 
     forecast_price[token] = adjusted_price
 
@@ -150,18 +148,33 @@ def train_model(token):
     time_end = datetime.now()
     print(f"Time elapsed forecast: {time_end - time_start}")
 
-def calculate_random_fluctuation(predicted_price, is_weekend, is_night):
-    if is_weekend and is_night:
-        fluctuation = random.uniform(-0.0015 * predicted_price, 0.0015 * predicted_price)  # 0% to 0.15%
-    elif is_night:
-        fluctuation = random.uniform(-0.003 * predicted_price, 0.003 * predicted_price)  # 0% to 0.3%
+def calculate_weighted_average_price(predicted_price, token, is_weekend, is_night):
+    path = os.path.join(data_base_path, f"{token.lower()}_price_data.csv")
+    df = pd.read_csv(path)
+    df["date"] = pd.to_datetime(df["date"])
+    df.set_index("date", inplace=True)
+    df = df.resample('10T').mean()
+
+    if is_night:
+        if is_weekend:
+            recent_prices = df['close'].dropna().iloc[-5:]
+            weights = [0.6, 0.1, 0.1, 0.1, 0.1]
+        else:
+            recent_prices = df['close'].dropna().iloc[-3:]
+            weights = [0.7, 0.15, 0.15]
+        
+        if len(recent_prices) < len(weights):
+            return predicted_price
+
+        weighted_sum = sum(w * p for w, p in zip(weights, recent_prices))
+        adjusted_price = (0.4 * predicted_price) + weighted_sum
     else:
-        fluctuation = random.uniform(-0.0005 * predicted_price, 0.0005 * predicted_price)  # 0% to 0.05%
-    
-    return predicted_price + fluctuation
+        adjusted_price = predicted_price
+
+    return adjusted_price
 
 def update_data():
-    tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
+    tokens = ["ethereum", "bitcoin", "binancecoin", "solana", "arbitrum"]
     for token in tokens:
         download_data(token)
         format_data(token)
