@@ -1,6 +1,6 @@
 {
     "wallet": {
-        "addressKeyName": "test",
+        "addressKeyName": "Allora",
         "addressRestoreMnemonic": "$ALLORA_SEED_PHRASE",
         "alloraHomeDir": "",
         "gas": "auto",
