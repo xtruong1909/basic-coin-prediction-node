@@ -2,11 +2,12 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
-from sklearn.linear_model import Lasso
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from config import data_base_path
 import random
 import requests
 import retrying
+import joblib
 
 forecast_price = {}
 
@@ -107,6 +108,48 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
+def train_model(token):
+    time_start = datetime.now()
+
+    price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
+    price_data["date"] = pd.to_datetime(price_data["date"])
+    price_data.set_index("date", inplace=True)
+    df = price_data.resample('10T').mean()
+
+    df = df.dropna()
+
+    # Define SARIMA parameters
+    order = (1, 1, 1)  # p, d, q
+    seasonal_order = (1, 1, 1, 12)  # P, D, Q, s (assuming yearly seasonality for monthly data)
+
+    try:
+        model = SARIMAX(df['close'], order=order, seasonal_order=seasonal_order, enforce_stationarity=False, enforce_invertibility=False)
+        sarima_model = model.fit(disp=False)
+    except Exception as e:
+        raise RuntimeError(f"An error occurred while fitting the SARIMA model: {e}")
+
+    # Save the model
+    joblib.dump(sarima_model, f'{token.lower()}_sarima_model.pkl')
+
+    # Forecasting next value
+    forecast_steps = 1
+    forecast = sarima_model.get_forecast(steps=forecast_steps)
+    forecast_mean = forecast.predicted_mean.iloc[-1]
+
+    # Xử lý biên độ ngẫu nhiên
+    now = datetime.now().astimezone()  # Giờ địa phương
+    is_weekend = now.weekday() >= 5  # Thứ 7, Chủ nhật
+    is_night = now.hour >= 19 or now.hour < 7  # Từ 19 giờ đến 7 giờ sáng
+
+    adjusted_price = calculate_random_fluctuation(forecast_mean, is_weekend, is_night)
+
+    forecast_price[token] = adjusted_price
+
+    print(f"Forecasted price for {token}: {forecast_price[token]}")
+
+    time_end = datetime.now()
+    print(f"Time elapsed forecast: {time_end - time_start}")
+
 def calculate_random_fluctuation(predicted_price, is_weekend, is_night):
     if is_weekend and is_night:
         fluctuation = random.uniform(-0.0015 * predicted_price, 0.0015 * predicted_price)  # 0% to 0.15%
@@ -116,40 +159,6 @@ def calculate_random_fluctuation(predicted_price, is_weekend, is_night):
         fluctuation = random.uniform(-0.0005 * predicted_price, 0.0005 * predicted_price)  # 0% to 0.05%
     
     return predicted_price + fluctuation
-
-def train_model(token):
-    time_start = datetime.now()
-
-    price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
-    df = pd.DataFrame()
-
-    price_data["date"] = pd.to_datetime(price_data["date"])
-    price_data.set_index("date", inplace=True)
-    df = price_data.resample('10T').mean()
-
-    df = df.dropna()
-    X = np.array(range(len(df))).reshape(-1, 1)
-    y = df['close'].values
-
-    model = Lasso(alpha=0.1)
-    model.fit(X, y)
-
-    next_time_index = np.array([[len(df)]])
-    predicted_price = model.predict(next_time_index)[0]
-
-    # Xử lý biên độ ngẫu nhiên
-    now = datetime.now().astimezone()  # Giờ địa phương
-    is_weekend = now.weekday() >= 5  # Thứ 7, Chủ nhật
-    is_night = now.hour >= 19 or now.hour < 7  # Từ 19 giờ đến 7 giờ sáng
-
-    adjusted_price = calculate_random_fluctuation(predicted_price, is_weekend, is_night)
-
-    forecast_price[token] = adjusted_price
-
-    print(f"Forecasted price for {token}: {forecast_price[token]}")
-
-    time_end = datetime.now()
-    print(f"Time elapsed forecast: {time_end - time_start}")
 
 def update_data():
     tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
