@@ -9,3 +9,8 @@ data
 inference-data
 head-data
 lib
+*.pkl
+/inference-data/
+/worker-data/
+__pycache__/
+*.log
