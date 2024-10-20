@@ -1,6 +1,6 @@
 {
     "wallet": {
-        "addressKeyName": "xtr",
+        "addressKeyName": "test",
         "addressRestoreMnemonic": "$ALLORA_SEED_PHRASE",
         "alloraHomeDir": "",
         "gas": "auto",
@@ -14,7 +14,7 @@
         {
             "topicId": 1,
             "inferenceEntrypointName": "api-worker-reputer",
-            "loopSeconds": 60,
+            "loopSeconds": 120,  // Tăng thời gian loop để phù hợp với dự báo SARIMA
             "parameters": {
                 "InferenceEndpoint": "http://inference:8011/inference/{Token}",
                 "Token": "ETH"
@@ -23,7 +23,7 @@
         {
             "topicId": 3,
             "inferenceEntrypointName": "api-worker-reputer",
-            "loopSeconds": 60,
+            "loopSeconds": 120,
             "parameters": {
                 "InferenceEndpoint": "http://inference:8011/inference/{Token}",
                 "Token": "BTC"
@@ -32,7 +32,7 @@
         {
             "topicId": 5,
             "inferenceEntrypointName": "api-worker-reputer",
-            "loopSeconds": 60,
+            "loopSeconds": 120,
             "parameters": {
                 "InferenceEndpoint": "http://inference:8011/inference/{Token}",
                 "Token": "SOL"
@@ -41,7 +41,7 @@
         {
             "topicId": 7,
             "inferenceEntrypointName": "api-worker-reputer",
-            "loopSeconds": 60,
+            "loopSeconds": 120,
             "parameters": {
                 "InferenceEndpoint": "http://inference:8011/inference/{Token}",
                 "Token": "ETH"
@@ -50,7 +50,7 @@
         {
             "topicId": 8,
             "inferenceEntrypointName": "api-worker-reputer",
-            "loopSeconds": 60,
+            "loopSeconds": 120,
             "parameters": {
                 "InferenceEndpoint": "http://inference:8011/inference/{Token}",
                 "Token": "BNB"
@@ -59,7 +59,7 @@
         {
             "topicId": 9,
             "inferenceEntrypointName": "api-worker-reputer",
-            "loopSeconds": 60,
+            "loopSeconds": 120,
             "parameters": {
                 "InferenceEndpoint": "http://inference:8011/inference/{Token}",
                 "Token": "ARB"
