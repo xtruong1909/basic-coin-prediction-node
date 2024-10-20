@@ -25,13 +25,13 @@ services:
       sh -c "
       while true; do
         python -u /app/update_app.py;
-        sleep 300;  # 300 seconds (5 minutes)
+        sleep 600;  # Increased to 600 seconds (10 minutes) for efficiency with SARIMA
       done
       "
     depends_on:
       inference:
         condition: service_healthy
-    
+  
   worker:
     container_name: worker
     image: alloranetwork/allora-offchain-node:latest
