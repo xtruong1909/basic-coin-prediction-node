@@ -14,7 +14,7 @@
         {
             "topicId": 1,
             "inferenceEntrypointName": "api-worker-reputer",
-            "loopSeconds": 120,  // Tăng thời gian loop để phù hợp với dự báo SARIMA
+            "loopSeconds": 120,
             "parameters": {
                 "InferenceEndpoint": "http://inference:8011/inference/{Token}",
                 "Token": "ETH"
