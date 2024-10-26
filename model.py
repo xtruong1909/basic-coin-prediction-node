@@ -190,8 +190,8 @@ def train_model(token):
     seasonal_order = (1, 1, 1, 12)  # P, D, Q, s (assuming yearly seasonality for monthly data)
 
     try:
-        # Train the SARIMA model
-        model = SARIMAX(df['close'], order=order, seasonal_order=seasonal_order, enforce_stationarity=False, enforce_invertibility=False)
+        # Train the SARIMA model including volume as an exogenous variable
+        model = SARIMAX(df['close'], exog=df[['volume']], order=order, seasonal_order=seasonal_order, enforce_stationarity=False, enforce_invertibility=False)
         sarima_model = model.fit(disp=False)
     except Exception as e:
         raise RuntimeError(f"An error occurred while fitting the SARIMA model: {e}")
@@ -201,7 +201,7 @@ def train_model(token):
 
     # Forecast the next value
     forecast_steps = 1
-    forecast = sarima_model.get_forecast(steps=forecast_steps)
+    forecast = sarima_model.get_forecast(steps=forecast_steps, exog=df[['volume']].iloc[-forecast_steps:])
     forecast_mean = forecast.predicted_mean.iloc[-1]
 
     # Adjust forecasted price based on RSI
