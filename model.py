@@ -216,6 +216,21 @@ def train_model(token):
 
     adjusted_price = forecast_mean + adjustment
 
+    # Adjust forecasted price based on volume changes
+    if len(df) >= 2:
+        volume_change = (df['volume'].iloc[-1] - df['volume'].iloc[-2]) / df['volume'].iloc[-2]
+        price_change = df['close'].iloc[-1] - df['close'].iloc[-2]
+        
+        if volume_change >= 0.2:
+            if price_change > 0:
+                # Volume increased by 20% or more and price increased
+                volume_adjustment = random.uniform(0, 0.01 * adjusted_price)  # Tăng từ 0% đến 1%
+                adjusted_price += volume_adjustment
+            elif price_change < 0:
+                # Volume increased by 20% or more and price decreased
+                volume_adjustment = random.uniform(-0.01 * adjusted_price, 0)  # Giảm từ 0% đến 1%
+                adjusted_price += volume_adjustment
+
     # Store the forecasted price
     forecast_price[token] = adjusted_price
 
