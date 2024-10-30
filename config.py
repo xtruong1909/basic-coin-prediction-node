@@ -5,9 +5,9 @@ app_base_path = os.getenv("APP_BASE_PATH", default=os.getcwd())
 data_base_path = os.path.join(app_base_path, "data")
 
 # Model parameters for SARIMA
-SARIMA_ORDER = (1, 1, 1)
+SARIMA_ORDER = (2, 1, 2)  # Updated to improve model accuracy
 SARIMA_SEASONAL_ORDER = (1, 1, 1, 12)
-TREND = 'c'  # Added trend parameter for SARIMA model
+TREND = 'c'  # Trend parameter for SARIMA model
 MAX_FORECAST_STEPS = 1  # Forecast for the next step
 
 # Paths to store model files
@@ -22,3 +22,6 @@ API_RETRY_ATTEMPTS = 5
 API_RETRY_DELAY = 1000  # milliseconds
 API_RETRY_MAX_DELAY = 10000  # milliseconds
 LOGGING_LEVEL = os.getenv("LOGGING_LEVEL", default="INFO")
+
+# Thread pool configuration
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "5"))  # Number of threads for concurrent operations
