@@ -109,27 +109,41 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
-# Hàm để điều chỉnh biên độ ngẫu nhiên
-def adjust_prediction(predicted_price):
-    current_time = datetime.now(timezone('Asia/Bangkok'))  # GMT +7
-    day_of_week = current_time.weekday()  # 0=Monday, 6=Sunday
-    current_hour = current_time.hour
+def calculate_rsi(df, period=14):
+    delta = df['close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-    # Trường hợp 1: Từ 19h đến 7h sáng thứ 7 và chủ nhật
-    if (day_of_week == 5 and current_hour >= 19) or (day_of_week == 6 and current_hour < 7) or \
-       (day_of_week == 6 and current_hour >= 19) or (day_of_week == 0 and current_hour < 7):
-        random_adjustment = random.uniform(-0.0015, 0.0015)  # ±0.15%
-
-    # Trường hợp 2: Từ 19h đến 7h sáng từ thứ 2 đến thứ 6
-    elif (0 <= day_of_week <= 4 and current_hour >= 19) or (1 <= day_of_week <= 5 and current_hour < 7):
-        random_adjustment = random.uniform(-0.003, 0.003)  # ±0.3%
-
-    # Các trường hợp còn lại
+def adjust_prediction_with_rsi(predicted_price, rsi_value):
+    if rsi_value > 80:
+        adjustment = random.uniform(-0.001, 0)  # Giảm từ 0% đến 0.1%
+    elif rsi_value < 20:
+        adjustment = random.uniform(0, 0.001)  # Tăng từ 0% đến 0.1%
     else:
-        random_adjustment = random.uniform(-0.0005, 0.0005)  # ±0.05%
+        adjustment = 0
+    return predicted_price * (1 + adjustment)
 
-    adjusted_price = predicted_price * (1 + random_adjustment)
-    return adjusted_price
+def adjust_prediction_with_volume(predicted_price, df):
+    if len(df) < 3:
+        return predicted_price
+
+    volume_change = (df['volume'].iloc[-1] - df['volume'].iloc[-2]) / df['volume'].iloc[-2]
+    price_diff = df['close'].iloc[-1] - df['close'].iloc[-2]
+
+    if volume_change >= 0.2:
+        if price_diff > 0:
+            adjustment = random.uniform(0, 0.01)  # Tăng từ 0% đến 1%
+        elif price_diff < 0:
+            adjustment = random.uniform(-0.01, 0)  # Giảm từ 0% đến 1%
+        else:
+            adjustment = 0
+    else:
+        adjustment = 0
+
+    return predicted_price * (1 + adjustment)
 
 def train_model(token):
     time_start = datetime.now()
@@ -137,6 +151,9 @@ def train_model(token):
     price_data["date"] = pd.to_datetime(price_data["date"])
     price_data.set_index("date", inplace=True)
     df = price_data.resample('10T').mean().dropna()
+
+    # Thêm RSI vào dataframe
+    df['rsi'] = calculate_rsi(df)
 
     X = np.array(range(len(df))).reshape(-1, 1)
     y = df['close'].values
@@ -148,8 +165,12 @@ def train_model(token):
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
 
-    # Điều chỉnh giá trị dự đoán dựa trên điều kiện về thời gian
-    adjusted_price = adjust_prediction(predicted_price)
+    # Điều chỉnh giá trị dự đoán dựa trên RSI
+    rsi_value = df['rsi'].iloc[-1]
+    predicted_price = adjust_prediction_with_rsi(predicted_price, rsi_value)
+
+    # Điều chỉnh giá trị dự đoán dựa trên volume
+    adjusted_price = adjust_prediction_with_volume(predicted_price, df)
 
     forecast_price[token] = adjusted_price
     print(f"Forecasted price for {token}: {forecast_price[token]}")
