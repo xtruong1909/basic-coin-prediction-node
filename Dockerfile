@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     build-essential \
     gcc \
+    libgomp1 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container
@@ -21,6 +22,7 @@ FROM python:3.11-slim AS runtime_env
 
 # Copy dependencies from the previous stage
 COPY --from=project_env /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=project_env /usr/local/bin /usr/local/bin
 
 # Set the working directory in the container
 WORKDIR /app
