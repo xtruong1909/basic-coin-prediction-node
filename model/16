@@ -2,11 +2,13 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
-from sklearn.ensemble import ExtraTreesRegressor
+from sklearn.ensemble import BaggingRegressor
+from sklearn.tree import DecisionTreeRegressor
 from config import data_base_path
 import random
 import requests
 import retrying
+import pytz  # Để sử dụng timezone
 
 forecast_price = {}
 
@@ -75,6 +77,16 @@ def download_data(token):
     combined_df.to_csv(file_path, index=False)
     print(f"Updated data for {token} saved to {file_path}. Total rows: {len(combined_df)}")
 
+def calculate_rsi(data, window=14):
+    delta = data['close'].diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 def format_data(token):
     path = os.path.join(binance_data_path, token.lower())
     file_path = os.path.join(path, f"{token.lower()}_5m_data.csv")
@@ -101,61 +113,44 @@ def format_data(token):
         df.index = pd.to_datetime(df["start_time"], unit='ms')
         df.index.name = "date"
 
+        df['rsi'] = calculate_rsi(df)
+
         output_path = os.path.join(data_base_path, f"{token.lower()}_price_data.csv")
         df.sort_index().to_csv(output_path)
         print(f"Formatted data saved to {output_path}")
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
-def apply_random_fluctuation(predicted_price):
-    now = datetime.now()
-    current_hour = now.hour
-    current_weekday = now.weekday()
+def get_random_fluctuation(predicted_price):
+    current_time = datetime.now(pytz.timezone('Asia/Bangkok'))
+    hour = current_time.hour
+    day_of_week = current_time.weekday()  # 0: Monday, 6: Sunday
 
-    # Điều kiện 1: Thứ 7 và Chủ Nhật từ 19 giờ đến 7 giờ sáng hôm sau
-    if current_weekday >= 5 and (current_hour >= 19 or current_hour < 7):
-        fluctuation_range = 0.0015  # 0.15%
-    # Điều kiện 2: Từ Thứ 2 đến Thứ 6 từ 19 giờ đến 7 giờ sáng hôm sau
-    elif current_weekday < 5 and (current_hour >= 19 or current_hour < 7):
-        fluctuation_range = 0.003  # 0.3%
-    # Các trường hợp khác
+    if (day_of_week in [5, 6] and (hour >= 19 or hour < 7)):  # Thứ 7 và Chủ nhật
+        fluctuation_percentage = random.uniform(-0.0015, 0.0015)  # 0% đến 0.15%
+    elif (day_of_week in [0, 1, 2, 3, 4] and (hour >= 19 or hour < 7)):  # Thứ 2 đến Thứ 6
+        fluctuation_percentage = random.uniform(-0.003, 0.003)  # 0% đến 0.3%
+    else:  # Các trường hợp còn lại
+        fluctuation_percentage = random.uniform(-0.0005, 0.0005)  # 0% đến 0.05%
+
+    return predicted_price * (1 + fluctuation_percentage)
+
+def adjust_price_with_rsi(price, rsi):
+    if rsi > 80:
+        adjustment = random.uniform(-0.001, 0) * price  # Giảm giá ngẫu nhiên từ 0% đến 0,1%
+    elif rsi < 20:
+        adjustment = random.uniform(0, 0.001) * price  # Tăng giá ngẫu nhiên từ 0% đến 0,1%
     else:
-        fluctuation_range = 0.0005  # 0.05%
+        adjustment = 0
+    return price + adjustment
 
-    # Áp dụng biên độ ngẫu nhiên
-    fluctuation = random.uniform(-fluctuation_range, fluctuation_range)
-    return predicted_price * (1 + fluctuation)
+def adjust_price_with_volume(price, df):
+    if len(df) >= 2:
+        prev_volume = df.iloc[-2]['volume']
+        prev_price = df.iloc[-2]['close']
+        prev_prev_price = df.iloc[-3]['close'] if len(df) >= 3 else prev_price
+        volume_increase = (prev_volume - df.iloc[-3]['volume']) / df.iloc[-3]['volume'] if len(df) >= 3 else 0
 
-def train_model(token):
-    time_start = datetime.now()
-    price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
-    price_data["date"] = pd.to_datetime(price_data["date"])
-    price_data.set_index("date", inplace=True)
-    df = price_data.resample('10T').mean().dropna()
-
-    X = np.array(range(len(df))).reshape(-1, 1)
-    y = df['close'].values
-
-    model = ExtraTreesRegressor(n_estimators=100)
-    model.fit(X, y)
-
-    next_time_index = np.array([[len(df)]])
-    predicted_price = model.predict(next_time_index)[0]
-
-    # Áp dụng biến động ngẫu nhiên vào giá trị dự đoán
-    price_predict = apply_random_fluctuation(predicted_price)
-    forecast_price[token] = price_predict
-
-    print(f"Forecasted price for {token}: {forecast_price[token]}")
-    time_end = datetime.now()
-    print(f"Time elapsed forecast: {time_end - time_start}")
-  
-def update_data():
-    tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
-    for token in tokens:
-        download_data(token)
-        format_data(token)
-        train_model(token)
-
-if __name__ == "__main__":
-    update_data()
+        if volume_increase >= 0.2:
+            if prev_price > prev_prev_price:
+                price += random.uniform(0, 0.01) * price  # Tăng giá ng
