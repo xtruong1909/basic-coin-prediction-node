@@ -7,7 +7,7 @@ services:
     ports:
       - "8011:8011"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8011/inference/ETH || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8011/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
