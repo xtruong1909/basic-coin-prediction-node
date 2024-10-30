@@ -20,3 +20,7 @@ lib
 notebooks/*  # Ignore Jupyter notebooks if used for experiments
 /.vscode/  # Ignore VS Code workspace settings
 __pycache__/
+*.pkl  # Ignore model files
+*.ipynb_checkpoints/  # Ignore notebook checkpoints
+.DS_Store  # Ignore macOS system files
+*.sav  # Ignore any saved model files in different formats
