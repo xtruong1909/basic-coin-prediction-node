@@ -1,3 +1,5 @@
+import os  # Thêm dòng này để sử dụng os.getenv()
+
 # Gunicorn config variables
 loglevel = "info"
 errorlog = "-"  # stderr
