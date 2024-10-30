@@ -1,11 +1,9 @@
 import os
 import requests
 import logging
-import time
 
 # Set up logging
-logging_level = os.environ.get("LOGGING_LEVEL", "INFO").upper()
-logging.basicConfig(level=logging_level, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 inference_address = os.environ.get("INFERENCE_API_ADDRESS")
 if not inference_address:
@@ -14,21 +12,19 @@ if not inference_address:
 
 url = f"{inference_address}/update"
 
-logging.info("Starting inference worker data update loop")
+logging.info("UPDATING INFERENCE WORKER DATA")
 
-while True:
-    logging.info("UPDATING INFERENCE WORKER DATA")
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        content = response.text
+try:
+    response = requests.get(url)
+    response.raise_for_status()
+    content = response.text
 
-        if content == "0":
-            logging.info("Update successful. Response content is '0'")
-        else:
-            logging.error("Unexpected response content: %s", content)
-    except requests.RequestException as e:
-        logging.error(f"Request failed: {e}")
-
-    # Wait before next update
-    time.sleep(600)  # Update every 10 minutes
+    if content == "0":
+        logging.info("Response content is '0'")
+        exit(0)
+    else:
+        logging.error("Unexpected response content: %s", content)
+        exit(1)
+except requests.RequestException as e:
+    logging.error(f"Request failed: {e}")
+    exit(1)
