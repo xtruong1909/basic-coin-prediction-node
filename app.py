@@ -14,7 +14,6 @@ def update_data():
         train_model(token)
 
 def get_token_inference(token):
-    # Dự đoán giá từ mô hình SARIMA
     return forecast_price.get(token, 0)
 
 @app.route("/inference/<string:token>")
