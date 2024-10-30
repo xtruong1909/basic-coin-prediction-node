@@ -2,11 +2,12 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
-from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import GradientBoostingRegressor
 from config import data_base_path
 import random
 import requests
 import retrying
+from pytz import timezone
 
 forecast_price = {}
 
@@ -107,21 +108,40 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
-def calculate_random_adjustment():
-    now = datetime.now()
-    weekday = now.weekday()  # Thứ 2 là 0, Chủ nhật là 6
-    hour = now.hour
-    adjustment = 0.0
+def calculate_rsi(df, window=14):
+    delta = df['close'].diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=window, min_periods=1).mean()
+    avg_loss = loss.rolling(window=window, min_periods=1).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
-    if (19 <= hour or hour < 7):  # Khoảng thời gian từ 19h đến 7h
-        if weekday == 5 or weekday == 6:  # Thứ 7 và Chủ nhật
-            adjustment = random.uniform(-0.0015, 0.0015)
-        else:  # Thứ 2 đến Thứ 6
-            adjustment = random.uniform(-0.003, 0.003)
-    else:
-        adjustment = random.uniform(-0.0005, 0.0005)
+def adjust_prediction_rsi(predicted_price, rsi):
+    if rsi > 80:
+        adjustment = random.uniform(0, 0.001)
+        predicted_price *= (1 - adjustment)
+    elif rsi < 20:
+        adjustment = random.uniform(0, 0.001)
+        predicted_price *= (1 + adjustment)
+    return predicted_price
 
-    return adjustment
+def adjust_prediction_volume(predicted_price, df):
+    if len(df) < 3:
+        return predicted_price
+
+    volume_change = (df['volume'].iloc[-2] - df['volume'].iloc[-3]) / df['volume'].iloc[-3]
+    price_change = df['close'].iloc[-2] - df['close'].iloc[-3]
+
+    if volume_change >= 0.2:
+        if price_change > 0:
+            adjustment = random.uniform(0, 0.01)
+            predicted_price *= (1 + adjustment)
+        elif price_change < 0:
+            adjustment = random.uniform(0, 0.01)
+            predicted_price *= (1 - adjustment)
+    return predicted_price
 
 def train_model(token):
     time_start = datetime.now()
@@ -130,30 +150,29 @@ def train_model(token):
     price_data.set_index("date", inplace=True)
     df = price_data.resample('10T').mean().dropna()
 
+    # Tính RSI
+    df['rsi'] = calculate_rsi(df)
+
     X = np.array(range(len(df))).reshape(-1, 1)
     y = df['close'].values
 
-    model = DecisionTreeRegressor()
+    model = GradientBoostingRegressor(n_estimators=100, learning_rate=0.1, max_depth=3)
     model.fit(X, y)
 
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
 
-    # Áp dụng điều chỉnh ngẫu nhiên
-    adjustment = calculate_random_adjustment()
-    predicted_price += predicted_price * adjustment
+    # Điều chỉnh giá trị dự đoán dựa trên RSI và volume
+    rsi = df['rsi'].iloc[-1]
+    predicted_price = adjust_prediction_rsi(predicted_price, rsi)
+    predicted_price = adjust_prediction_volume(predicted_price, df)
 
-    fluctuation_range = 0.01 * predicted_price
-    min_price = predicted_price - fluctuation_range
-    max_price = predicted_price + fluctuation_range
-
-    price_predict = random.uniform(min_price, max_price)
-    forecast_price[token] = price_predict
-
+    forecast_price[token] = predicted_price
     print(f"Forecasted price for {token}: {forecast_price[token]}")
+    
     time_end = datetime.now()
     print(f"Time elapsed forecast: {time_end - time_start}")
-  
+
 def update_data():
     tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
     for token in tokens:
