@@ -153,4 +153,50 @@ def adjust_price_with_volume(price, df):
 
         if volume_increase >= 0.2:
             if prev_price > prev_prev_price:
-                price += random.uniform(0, 0.01) * price  # Tăng giá ng
+                price += random.uniform(0, 0.01) * price  # Tăng giá ngẫu nhiên từ 0% đến 1%
+            elif prev_price < prev_prev_price:
+                price -= random.uniform(0, 0.01) * price  # Giảm giá ngẫu nhiên từ 0% đến 1%
+    return price
+
+def train_model(token):
+    time_start = datetime.now()
+    price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
+    price_data["date"] = pd.to_datetime(price_data["date"])
+    price_data.set_index("date", inplace=True)
+    df = price_data.resample('10T').mean().dropna()
+
+    X = np.array(range(len(df))).reshape(-1, 1)
+    y = df['close'].values
+
+    base_model = DecisionTreeRegressor()
+    model = BaggingRegressor(base_model, n_estimators=100)
+    model.fit(X, y)
+
+    next_time_index = np.array([[len(df)]])
+    predicted_price = model.predict(next_time_index)[0]
+
+    # Áp dụng biên độ ngẫu nhiên vào giá trị dự đoán
+    adjusted_price = get_random_fluctuation(predicted_price)
+
+    # Điều chỉnh giá với RSI
+    rsi = df['rsi'].iloc[-1]
+    adjusted_price = adjust_price_with_rsi(adjusted_price, rsi)
+
+    # Điều chỉnh giá với volume
+    adjusted_price = adjust_price_with_volume(adjusted_price, df)
+
+    forecast_price[token] = adjusted_price
+
+    print(f"Forecasted price for {token}: {forecast_price[token]}")
+    time_end = datetime.now()
+    print(f"Time elapsed forecast: {time_end - time_start}")
+
+def update_data():
+    tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
+    for token in tokens:
+        download_data(token)
+        format_data(token)
+        train_model(token)
+
+if __name__ == "__main__":
+    update_data()
