@@ -107,6 +107,16 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
+def calculate_rsi(data, window=14):
+    delta = data['close'].diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 def calculate_random_fluctuation(predicted_price, is_weekend, is_night):
     if is_weekend and is_night:
         fluctuation = random.uniform(-0.0015 * predicted_price, 0.0015 * predicted_price)  # 0% to 0.15%
@@ -116,6 +126,30 @@ def calculate_random_fluctuation(predicted_price, is_weekend, is_night):
         fluctuation = random.uniform(-0.0005 * predicted_price, 0.0005 * predicted_price)  # 0% to 0.05%
     
     return predicted_price + fluctuation
+
+def adjust_price_with_rsi(price, rsi):
+    if rsi > 80:
+        adjustment = random.uniform(-0.001, 0) * price  # Giảm giá ngẫu nhiên từ 0% đến 0,1%
+    elif rsi < 20:
+        adjustment = random.uniform(0, 0.001) * price  # Tăng giá ngẫu nhiên từ 0% đến 0,1%
+    else:
+        adjustment = 0
+    return price + adjustment
+
+def adjust_price_with_volume(price, df):
+    if len(df) >= 3:
+        prev_volume = df.iloc[-2]['volume']
+        prev_prev_volume = df.iloc[-3]['volume']
+        prev_price = df.iloc[-2]['close']
+        prev_prev_price = df.iloc[-3]['close']
+        volume_increase = (prev_volume - prev_prev_volume) / prev_prev_volume
+
+        if volume_increase >= 0.2:
+            if prev_price > prev_prev_price:
+                price += random.uniform(0, 0.01) * price  # Tăng giá ngẫu nhiên từ 0% đến 1%
+            elif prev_price < prev_prev_price:
+                price -= random.uniform(0, 0.01) * price  # Giảm giá ngẫu nhiên từ 0% đến 1%
+    return price
 
 def train_model(token):
     time_start = datetime.now()
@@ -128,6 +162,7 @@ def train_model(token):
     df = price_data.resample('10T').mean()
 
     df = df.dropna()
+    df['rsi'] = calculate_rsi(df)
     X = np.array(range(len(df))).reshape(-1, 1)
     y = df['close'].values
 
@@ -143,6 +178,13 @@ def train_model(token):
     is_night = now.hour >= 19 or now.hour < 7  # Từ 19 giờ đến 7 giờ sáng
 
     adjusted_price = calculate_random_fluctuation(predicted_price, is_weekend, is_night)
+
+    # Điều chỉnh giá với RSI
+    rsi = df['rsi'].iloc[-1]
+    adjusted_price = adjust_price_with_rsi(adjusted_price, rsi)
+
+    # Điều chỉnh giá với volume
+    adjusted_price = adjust_price_with_volume(adjusted_price, df)
 
     forecast_price[token] = adjusted_price
 
