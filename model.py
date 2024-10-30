@@ -9,6 +9,7 @@ import requests
 import retrying
 import joblib
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -18,8 +19,8 @@ forecast_price = {}
 
 # Path to store Binance data
 binance_data_path = os.path.join(data_base_path, "binance/futures-klines")
-MAX_DATA_SIZE = 1000  # Giới hạn số lượng dữ liệu tối đa khi lưu trữ
-INITIAL_FETCH_SIZE = 1000  # Số lượng nến lần đầu tải về
+MAX_DATA_SIZE = 5000  # Increase the limit of data stored for better model training
+INITIAL_FETCH_SIZE = 5000  # Increase initial fetch size to capture more historical data
 
 @retrying.retry(wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=5)
 def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
@@ -101,7 +102,7 @@ def download_data(token):
         new_data = fetch_prices(symbols, interval, 100, start_time, end_time)
     else:
         # If no data exists, fetch initial data
-        start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE*5)).timestamp() * 1000)
+        start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE * 5)).timestamp() * 1000)
         end_time = int(current_datetime.timestamp() * 1000)
         new_data = fetch_prices(symbols, interval, INITIAL_FETCH_SIZE, start_time, end_time)
 
@@ -190,7 +191,7 @@ def train_model(token):
     df = df.dropna()  # Drop rows with NaN values
 
     # Define SARIMA parameters
-    order = (1, 1, 1)  # p, d, q
+    order = (2, 1, 2)  # Increased order to improve model performance
     seasonal_order = (1, 1, 1, 12)  # P, D, Q, s (assuming yearly seasonality for monthly data)
 
     try:
@@ -202,7 +203,7 @@ def train_model(token):
         return
 
     # Save the trained model
-    joblib.dump(sarima_model, f'{token.lower()}_sarima_model.pkl')
+    joblib.dump(sarima_model, os.path.join(data_base_path, f'{token.lower()}_sarima_model.pkl'))
 
     # Forecast the next value
     forecast_steps = 1
@@ -249,14 +250,23 @@ def update_data():
     Download, format, and train models for a list of tokens.
     """
     tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
-    for token in tokens:
-        try:
-            logging.info(f"Updating data for token: {token}")
-            download_data(token)
-            format_data(token)
-            train_model(token)
-        except Exception as e:
-            logging.error(f"Error updating data for {token}: {e}")
+    with ThreadPoolExecutor(max_workers=len(tokens)) as executor:
+        executor.map(lambda token: update_single_token(token), tokens)
+
+def update_single_token(token):
+    """
+    Update data, format, and train the model for a single token.
+    
+    Parameters:
+        token (str): The token to update.
+    """
+    try:
+        logging.info(f"Updating data for token: {token}")
+        download_data(token)
+        format_data(token)
+        train_model(token)
+    except Exception as e:
+        logging.error(f"Error updating data for {token}: {e}")
 
 if __name__ == "__main__":
     update_data()
