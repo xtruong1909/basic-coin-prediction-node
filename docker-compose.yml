@@ -7,7 +7,6 @@ services:
     ports:
       - "8011:8011"
     healthcheck:
-      # test: ["CMD", "curl", "-f", "http://localhost:8011/inference/ETH"]
       test: ["CMD-SHELL", "curl -f http://localhost:8011/inference/ETH || exit 1 && curl -f http://localhost:8011/inference/BTC || exit 1 && curl -f http://localhost:8011/inference/SOL || exit 1 && curl -f http://localhost:8011/inference/BNB || exit 1 && curl -f http://localhost:8011/inference/ARB || exit 1"]
       interval: 10s
       timeout: 5s
@@ -15,7 +14,9 @@ services:
       start_period: 300s
     volumes:
       - ./inference-data:/app/data
-  
+    environment:
+      - LOGGING_LEVEL=INFO
+
   updater:
     container_name: updater
     build: .
@@ -25,13 +26,15 @@ services:
       sh -c "
       while true; do
         python -u /app/update_app.py;
-        sleep 600;  # Increased to 600 seconds (10 minutes) for efficiency with SARIMA
+        sleep 600;
       done
       "
     depends_on:
       inference:
         condition: service_healthy
-  
+    volumes:
+      - ./inference-data:/app/data
+
   worker:
     container_name: worker
     image: alloranetwork/allora-offchain-node:latest
