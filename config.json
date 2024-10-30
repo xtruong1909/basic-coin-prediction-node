@@ -5,7 +5,7 @@
         "alloraHomeDir": "",
         "gas": "auto",
         "gasAdjustment": 1.5,
-        "nodeRpc": "http://65.108.8.250:30657",
+        "nodeRpc": "https://allora-testnet-rpc.itrocket.net",
         "maxRetries": 3,
         "delay": 5,
         "submitTx": true
@@ -65,12 +65,5 @@
                 "Token": "ARB"
             }
         }
-    ],
-    "sarima_model": {
-        "order": [1, 1, 1],
-        "seasonal_order": [1, 1, 1, 12],
-        "trend": "c",
-        "enforce_stationarity": true,
-        "enforce_invertibility": true
-    }
+    ]
 }
