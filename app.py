@@ -28,6 +28,9 @@ def get_token_inference(token):
         inference = forecast_price.get(token, 0)
         logging.info(f"Inference for token {token}: {inference}")
         return inference
+    except KeyError:
+        logging.error(f"Forecast for token {token} not found.")
+        return 0
     except Exception as e:
         logging.error(f"Error generating inference for token {token}: {e}")
         return 0
@@ -55,4 +58,11 @@ def update():
         return Response(json.dumps({"status": "success"}), status=200, mimetype='application/json')
     except Exception as e:
         logging.error(f"Error during update: {e}")
-        return Response(json.dumps({"status": "failure", "err
+        return Response(json.dumps({"status": "failure", "error": str(e)}), status=500, mimetype='application/json')
+
+if __name__ == "__main__":
+    try:
+        update_data()
+    except Exception as e:
+        logging.error(f"Initial data update failed: {e}")
+    app.run(host="0.0.0.0", port=8011)
