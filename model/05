@@ -75,6 +75,16 @@ def download_data(token):
     combined_df.to_csv(file_path, index=False)
     print(f"Updated data for {token} saved to {file_path}. Total rows: {len(combined_df)}")
 
+def calculate_rsi(data, window=14):
+    delta = data['close'].diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 def format_data(token):
     path = os.path.join(binance_data_path, token.lower())
     file_path = os.path.join(path, f"{token.lower()}_5m_data.csv")
@@ -101,11 +111,37 @@ def format_data(token):
         df.index = pd.to_datetime(df["start_time"], unit='ms')
         df.index.name = "date"
 
+        df['rsi'] = calculate_rsi(df)
+
         output_path = os.path.join(data_base_path, f"{token.lower()}_price_data.csv")
         df.sort_index().to_csv(output_path)
         print(f"Formatted data saved to {output_path}")
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
+
+def adjust_price_with_rsi(price, rsi):
+    if rsi > 80:
+        adjustment = random.uniform(-0.001, 0) * price  # Giảm giá ngẫu nhiên từ 0% đến 0,1%
+    elif rsi < 20:
+        adjustment = random.uniform(0, 0.001) * price  # Tăng giá ngẫu nhiên từ 0% đến 0,1%
+    else:
+        adjustment = 0
+    return price + adjustment
+
+def adjust_price_with_volume(price, df):
+    if len(df) >= 3:
+        prev_volume = df.iloc[-2]['volume']
+        prev_prev_volume = df.iloc[-3]['volume']
+        prev_price = df.iloc[-2]['close']
+        prev_prev_price = df.iloc[-3]['close']
+        volume_increase = (prev_volume - prev_prev_volume) / prev_prev_volume
+
+        if volume_increase >= 0.2:
+            if prev_price > prev_prev_price:
+                price += random.uniform(0, 0.01) * price  # Tăng giá ngẫu nhiên từ 0% đến 1%
+            elif prev_price < prev_prev_price:
+                price -= random.uniform(0, 0.01) * price  # Giảm giá ngẫu nhiên từ 0% đến 1%
+    return price
 
 def train_model(token):
     time_start = datetime.now()
@@ -120,22 +156,17 @@ def train_model(token):
     model = DecisionTreeRegressor()
     model.fit(X, y)
 
-    next_time_index = np.array([[len(df)]])
+    next_time_index = np.array([[len(df)]]).reshape(-1, 1)
     predicted_price = model.predict(next_time_index)[0]
 
-    # Thêm biên độ ngẫu nhiên
-    current_hour = datetime.now().hour
-    current_weekday = datetime.now().weekday()
+    # Điều chỉnh giá với RSI
+    rsi = df['rsi'].iloc[-1]
+    adjusted_price = adjust_price_with_rsi(predicted_price, rsi)
 
-    if (current_hour >= 19 or current_hour < 7) and current_weekday in [5, 6]:  # Thứ 7 và Chủ nhật
-        fluctuation_range = random.uniform(-0.0015 * predicted_price, 0.0015 * predicted_price)
-    elif (current_hour >= 19 or current_hour < 7) and current_weekday in range(0, 5):  # Thứ 2 đến Thứ 6
-        fluctuation_range = random.uniform(-0.003 * predicted_price, 0.003 * predicted_price)
-    else:
-        fluctuation_range = random.uniform(-0.0005 * predicted_price, 0.0005 * predicted_price)
+    # Điều chỉnh giá với volume
+    adjusted_price = adjust_price_with_volume(adjusted_price, df)
 
-    price_predict = predicted_price + fluctuation_range
-    forecast_price[token] = price_predict
+    forecast_price[token] = adjusted_price
 
     print(f"Forecasted price for {token}: {forecast_price[token]}")
     time_end = datetime.now()
