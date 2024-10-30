@@ -3,7 +3,7 @@ services:
     container_name: inference
     build:
       context: .
-    command: python -u /app/app.py
+    command: gunicorn --config /app/gunicorn_conf.py app:app
     ports:
       - "8011:8011"
     healthcheck:
@@ -16,6 +16,8 @@ services:
       - ./inference-data:/app/data
     environment:
       - LOGGING_LEVEL=INFO
+      - WORKERS=2  # Define number of workers for gunicorn
+      - THREADS=4  # Define number of threads per worker
 
   updater:
     container_name: updater
