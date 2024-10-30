@@ -1,30 +1,22 @@
 import os
 import requests
-import logging
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-inference_address = os.environ.get("INFERENCE_API_ADDRESS")
-if not inference_address:
-    logging.error("INFERENCE_API_ADDRESS environment variable is not set.")
-    exit(1)
-
+inference_address = os.environ["INFERENCE_API_ADDRESS"]
 url = f"{inference_address}/update"
 
-logging.info("UPDATING INFERENCE WORKER DATA")
+print("UPDATING INFERENCE WORKER DATA")
 
-try:
-    response = requests.get(url)
-    response.raise_for_status()
+response = requests.get(url)
+if response.status_code == 200:
+    # Request was successful
     content = response.text
 
     if content == "0":
-        logging.info("Response content is '0'")
+        print("Response content is '0'")
         exit(0)
     else:
-        logging.error("Unexpected response content: %s", content)
         exit(1)
-except requests.RequestException as e:
-    logging.error(f"Request failed: {e}")
+else:
+    # Request failed
+    print(f"Request failed with status code: {response.status_code}")
     exit(1)
