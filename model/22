@@ -2,7 +2,8 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
-from sklearn.svm import SVR
+from scipy.cluster.hierarchy import linkage, fcluster
+from sklearn.preprocessing import StandardScaler
 from config import data_base_path
 import random
 import requests
@@ -11,8 +12,8 @@ import retrying
 forecast_price = {}
 
 binance_data_path = os.path.join(data_base_path, "binance/futures-klines")
-MAX_DATA_SIZE = 1000  # Giới hạn số lượng dữ liệu tối đa khi lưu trữ
-INITIAL_FETCH_SIZE = 1000  # Số lượng nến lần đầu tải về
+MAX_DATA_SIZE = 1000
+INITIAL_FETCH_SIZE = 1000
 
 @retrying.retry(wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=5)
 def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
@@ -107,23 +108,32 @@ def format_data(token):
     else:
         print(f"Required columns are missing in {file_path}. Skipping this file.")
 
-def apply_random_fluctuation(predicted_price):
-    """Áp dụng biên độ dao động ngẫu nhiên dựa trên thời gian hiện tại."""
-    current_time = datetime.now()
-    current_hour = current_time.hour
-    current_day_of_week = current_time.weekday()
+def calculate_rsi(df, window=14):
+    delta = df['close'].diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
 
-    fluctuation = 0.0
+    avg_gain = gain.rolling(window=window, min_periods=1).mean()
+    avg_loss = loss.rolling(window=window, min_periods=1).mean()
 
-    if current_day_of_week == 5 or current_day_of_week == 6:  # Thứ 7 (5) và Chủ nhật (6)
-        if 19 <= current_hour or current_hour < 7:  # Từ 19 giờ đến 7 giờ sáng hôm sau
-            fluctuation = random.uniform(-0.0015 * predicted_price, 0.0015 * predicted_price)
-    elif current_day_of_week < 5:  # Các ngày trong tuần từ Thứ 2 đến Thứ 6
-        if 19 <= current_hour or current_hour < 7:  # Từ 19 giờ đến 7 giờ sáng hôm sau
-            fluctuation = random.uniform(-0.003 * predicted_price, 0.003 * predicted_price)
-        else:  # Các giờ còn lại trong ngày (từ 7 giờ sáng đến trước 19 giờ)
-            fluctuation = random.uniform(-0.0005 * predicted_price, 0.0005 * predicted_price)
-    return predicted_price + fluctuation
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def apply_volume_adjustment(predicted_price, df):
+    # Kiểm tra điều kiện volume tăng và giá tăng
+    if len(df) >= 2:
+        vol_increase = df['volume'].iloc[-1] > df['volume'].iloc[-2] * 1.2
+        price_diff = df['close'].iloc[-1] - df['close'].iloc[-2]
+        
+        if vol_increase and price_diff > 0:
+            adjustment = random.uniform(0, 0.01)
+            predicted_price *= (1 + adjustment)
+        elif vol_increase and price_diff < 0:
+            adjustment = random.uniform(0, 0.01)
+            predicted_price *= (1 - adjustment)
+    
+    return predicted_price
 
 def train_model(token):
     time_start = datetime.now()
@@ -132,19 +142,31 @@ def train_model(token):
     price_data.set_index("date", inplace=True)
     df = price_data.resample('10T').mean().dropna()
 
+    df['rsi'] = calculate_rsi(df)
+
     X = np.array(range(len(df))).reshape(-1, 1)
     y = df['close'].values
 
-    model = SVR(kernel='rbf', C=100, gamma=0.1)
+    # Sử dụng mô hình KNeighborsRegressor
+    model = KNeighborsRegressor(n_neighbors=5)
     model.fit(X, y)
 
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
 
-    # Áp dụng biên độ dao động ngẫu nhiên
-    price_with_fluctuation = apply_random_fluctuation(predicted_price)
+    # Điều chỉnh giá dựa vào RSI
+    current_rsi = df['rsi'].iloc[-1]
+    if current_rsi > 80:
+        adjustment = random.uniform(0, 0.001)
+        predicted_price *= (1 - adjustment)
+    elif current_rsi < 20:
+        adjustment = random.uniform(0, 0.001)
+        predicted_price *= (1 + adjustment)
 
-    forecast_price[token] = price_with_fluctuation
+    # Điều chỉnh giá dựa vào volume
+    predicted_price = apply_volume_adjustment(predicted_price, df)
+
+    forecast_price[token] = predicted_price
 
     print(f"Forecasted price for {token}: {forecast_price[token]}")
     time_end = datetime.now()
