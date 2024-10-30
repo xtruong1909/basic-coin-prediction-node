@@ -3,10 +3,12 @@ gunicorn[gthread]
 numpy==1.24.3
 pandas==2.1.3
 requests==2.32.0
-scikit_learn==1.3.2
+scikit-learn==1.3.2
 werkzeug>=3.0.3
 retrying
-statsmodels
-joblib
-matplotlib
-scikit-learn
+statsmodels==0.13.5  # Specify version compatible with SARIMA
+joblib==1.3.0  # Ensure compatibility
+matplotlib==3.7.1  # Version compatible with current numpy and pandas
+scipy==1.11.3  # Added for SARIMA model and statistical functions
+jq  # Added for processing JSON in bash scripts
+psutil  # Added for monitoring system resource usage
