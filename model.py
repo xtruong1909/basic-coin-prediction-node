@@ -8,6 +8,10 @@ import random
 import requests
 import retrying
 import joblib
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Dictionary to store forecasted prices for each token
 forecast_price = {}
@@ -50,7 +54,7 @@ def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=No
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f'Failed to fetch prices for {symbol} from Binance API: {str(e)}')
+        logging.error(f'Failed to fetch prices for {symbol} from Binance API: {str(e)}')
         raise e
 
 def calculate_rsi(df, period=14):
@@ -124,7 +128,7 @@ def download_data(token):
     if not os.path.exists(download_path):
         os.makedirs(download_path)
     combined_df.to_csv(file_path, index=False)
-    print(f"Updated data for {token} saved to {file_path}. Total rows: {len(combined_df)}")
+    logging.info(f"Updated data for {token} saved to {file_path}. Total rows: {len(combined_df)}")
 
 def format_data(token):
     """
@@ -137,7 +141,7 @@ def format_data(token):
     file_path = os.path.join(path, f"{token.lower()}_5m_data.csv")
 
     if not os.path.exists(file_path):
-        print(f"No data file found for {token}")
+        logging.warning(f"No data file found for {token}")
         return
 
     df = pd.read_csv(file_path)
@@ -164,9 +168,9 @@ def format_data(token):
 
         output_path = os.path.join(data_base_path, f"{token.lower()}_price_data.csv")
         df.sort_index().to_csv(output_path)
-        print(f"Formatted data saved to {output_path}")
+        logging.info(f"Formatted data saved to {output_path}")
     else:
-        print(f"Required columns are missing in {file_path}. Skipping this file.")
+        logging.warning(f"Required columns are missing in {file_path}. Skipping this file.")
 
 def train_model(token):
     """
@@ -194,7 +198,8 @@ def train_model(token):
         model = SARIMAX(df['close'], exog=df[['volume']], order=order, seasonal_order=seasonal_order, enforce_stationarity=False, enforce_invertibility=False)
         sarima_model = model.fit(disp=False)
     except Exception as e:
-        raise RuntimeError(f"An error occurred while fitting the SARIMA model: {e}")
+        logging.error(f"An error occurred while fitting the SARIMA model for {token}: {e}")
+        return
 
     # Save the trained model
     joblib.dump(sarima_model, f'{token.lower()}_sarima_model.pkl')
@@ -234,10 +239,10 @@ def train_model(token):
     # Store the forecasted price
     forecast_price[token] = adjusted_price
 
-    print(f"Forecasted price for {token}: {forecast_price[token]}")
+    logging.info(f"Forecasted price for {token}: {forecast_price[token]}")
 
     time_end = datetime.now()
-    print(f"Time elapsed forecast: {time_end - time_start}")
+    logging.info(f"Time elapsed forecast: {time_end - time_start}")
 
 def update_data():
     """
@@ -245,9 +250,13 @@ def update_data():
     """
     tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
     for token in tokens:
-        download_data(token)
-        format_data(token)
-        train_model(token)
+        try:
+            logging.info(f"Updating data for token: {token}")
+            download_data(token)
+            format_data(token)
+            train_model(token)
+        except Exception as e:
+            logging.error(f"Error updating data for {token}: {e}")
 
 if __name__ == "__main__":
     update_data()
