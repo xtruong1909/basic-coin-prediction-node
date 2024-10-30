@@ -65,5 +65,12 @@
                 "Token": "ARB"
             }
         }
-    ]
+    ],
+    "sarima_model": {
+        "order": [1, 1, 1],
+        "seasonal_order": [1, 1, 1, 12],
+        "trend": "c",
+        "enforce_stationarity": true,
+        "enforce_invertibility": true
+    }
 }
