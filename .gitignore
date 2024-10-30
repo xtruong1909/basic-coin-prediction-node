@@ -5,12 +5,18 @@ __pycache__
 logs/*
 .env
 keys
-data
-inference-data
+/data/
+/inference-data/
+/worker-data/
 head-data
 lib
 *.pkl
-/inference-data/
-/worker-data/
-__pycache__/
 *.log
+/models/
+*.csv
+*.h5
+*.tmp
+*.json
+notebooks/*  # Ignore Jupyter notebooks if used for experiments
+/.vscode/  # Ignore VS Code workspace settings
+__pycache__/
