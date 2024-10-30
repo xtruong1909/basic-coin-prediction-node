@@ -19,8 +19,8 @@ forecast_price = {}
 
 # Path to store Binance data
 binance_data_path = os.path.join(data_base_path, "binance/futures-klines")
-MAX_DATA_SIZE = 1500  # Limit data size to comply with Binance API constraints
-INITIAL_FETCH_SIZE = 1000  # Initial fetch size limited to avoid exceeding Binance API limits
+MAX_DATA_SIZE = 5000  # Increase the limit of data stored for better model training
+INITIAL_FETCH_SIZE = 5000  # Increase initial fetch size to capture more historical data
 
 @retrying.retry(wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=5)
 def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
@@ -30,7 +30,7 @@ def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=No
     Parameters:
         symbol (str): Symbol for which data is to be fetched.
         interval (str): Time interval for the data.
-        limit (int): Number of data points to fetch (maximum 1500).
+        limit (int): Number of data points to fetch.
         start_time (int): Start time in milliseconds.
         end_time (int): End time in milliseconds.
     
@@ -40,31 +40,20 @@ def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=No
     try:
         base_url = "https://fapi.binance.com"
         endpoint = f"/fapi/v1/klines"
-        all_data = []
-        while True:
-            params = {
-                "symbol": symbol,
-                "interval": interval,
-                "limit": min(limit, 1500)  # Ensure limit does not exceed 1500
-            }
-            if start_time and end_time and start_time < end_time:
-                params['startTime'] = start_time
-                params['endTime'] = end_time
+        params = {
+            "symbol": symbol,
+            "interval": interval,
+            "limit": limit
+        }
+        if start_time:
+            params['startTime'] = start_time
+        if end_time:
+            params['endTime'] = end_time
 
-            logging.info(f"Fetching data for {symbol} with params: {params}")
-            url = base_url + endpoint
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            all_data.extend(data)
-
-            if len(data) < limit:
-                break  # Stop if less data returned than requested
-
-            # Update start time for the next request
-            start_time = data[-1][6] + 1  # `close_time` of last data point + 1 ms
-
-        return all_data
+        url = base_url + endpoint
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
         logging.error(f'Failed to fetch prices for {symbol} from Binance API: {str(e)}')
         raise e
@@ -89,7 +78,7 @@ def calculate_rsi(df, period=14):
 
     rs = avg_gain / avg_loss  # Relative Strength
     rsi = 100 - (100 / (1 + rs))  # RSI formula
-    df['rsi'] = rsi.fillna(method='bfill')  # Fill missing values
+    df['rsi'] = rsi  # Add RSI to DataFrame
     return df
 
 def download_data(token):
@@ -110,24 +99,12 @@ def download_data(token):
         # If data already exists, fetch the most recent data
         start_time = int((current_datetime - timedelta(minutes=500)).timestamp() * 1000)
         end_time = int(current_datetime.timestamp() * 1000)
-        if start_time < end_time:  # Ensure start_time is less than end_time
-            new_data = fetch_prices(symbols, interval, limit=1000, start_time=start_time, end_time=end_time)
-        else:
-            logging.warning(f"Invalid start_time ({start_time}) and end_time ({end_time}) for {token}. Skipping data fetch.")
-            new_data = []
+        new_data = fetch_prices(symbols, interval, 100, start_time, end_time)
     else:
         # If no data exists, fetch initial data
         start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE * 5)).timestamp() * 1000)
         end_time = int(current_datetime.timestamp() * 1000)
-        if start_time < end_time:  # Ensure start_time is less than end_time
-            new_data = fetch_prices(symbols, interval, limit=INITIAL_FETCH_SIZE, start_time=start_time, end_time=end_time)
-        else:
-            logging.warning(f"Invalid start_time ({start_time}) and end_time ({end_time}) for {token}. Skipping data fetch.")
-            new_data = []
-
-    if len(new_data) == 0:
-        logging.warning(f"No new data fetched for {token}.")
-        return
+        new_data = fetch_prices(symbols, interval, INITIAL_FETCH_SIZE, start_time, end_time)
 
     # Create DataFrame from fetched data
     new_df = pd.DataFrame(new_data, columns=[
@@ -221,52 +198,52 @@ def train_model(token):
         # Train the SARIMA model including volume as an exogenous variable
         model = SARIMAX(df['close'], exog=df[['volume']], order=order, seasonal_order=seasonal_order, enforce_stationarity=False, enforce_invertibility=False)
         sarima_model = model.fit(disp=False)
-
-        # Save the trained model
-        joblib.dump(sarima_model, os.path.join(data_base_path, f'{token.lower()}_sarima_model.pkl'))
-
-        # Forecast the next value
-        forecast_steps = 1
-        forecast = sarima_model.get_forecast(steps=forecast_steps, exog=df[['volume']].iloc[-forecast_steps:])
-        forecast_mean = forecast.predicted_mean.iloc[-1]
-
-        # Adjust forecasted price based on RSI
-        latest_rsi = df['rsi'].iloc[-1]
-
-        if latest_rsi > 80:
-            adjustment = random.uniform(-0.001 * forecast_mean, 0)  # Giảm từ 0% đến 0.1%
-        elif latest_rsi < 20:
-            adjustment = random.uniform(0, 0.001 * forecast_mean)  # Tăng từ 0% đến 0.1%
-        else:
-            adjustment = 0  # Giữ nguyên
-
-        adjusted_price = forecast_mean + adjustment
-
-        # Adjust forecasted price based on volume changes
-        if len(df) >= 2:
-            volume_change = (df['volume'].iloc[-1] - df['volume'].iloc[-2]) / df['volume'].iloc[-2]
-            price_change = df['close'].iloc[-1] - df['close'].iloc[-2]
-
-            if volume_change >= 0.2:
-                if price_change > 0:
-                    # Volume increased by 20% or more and price increased
-                    volume_adjustment = random.uniform(0, 0.01 * adjusted_price)  # Tăng từ 0% đến 1%
-                    adjusted_price += volume_adjustment
-                elif price_change < 0:
-                    # Volume increased by 20% or more and price decreased
-                    volume_adjustment = random.uniform(-0.01 * adjusted_price, 0)  # Giảm từ 0% đến 1%
-                    adjusted_price += volume_adjustment
-
-        # Store the forecasted price
-        forecast_price[token] = adjusted_price
-
-        logging.info(f"Forecasted price for {token}: {forecast_price[token]}")
-
-        time_end = datetime.now()
-        logging.info(f"Time elapsed forecast: {time_end - time_start}")
-
     except Exception as e:
         logging.error(f"An error occurred while fitting the SARIMA model for {token}: {e}")
+        return
+
+    # Save the trained model
+    joblib.dump(sarima_model, os.path.join(data_base_path, f'{token.lower()}_sarima_model.pkl'))
+
+    # Forecast the next value
+    forecast_steps = 1
+    forecast = sarima_model.get_forecast(steps=forecast_steps, exog=df[['volume']].iloc[-forecast_steps:])
+    forecast_mean = forecast.predicted_mean.iloc[-1]
+
+    # Adjust forecasted price based on RSI
+    latest_rsi = df['rsi'].iloc[-1]
+    
+    if latest_rsi > 80:
+        adjustment = random.uniform(-0.001 * forecast_mean, 0)  # Giảm từ 0% đến 0.1%
+    elif latest_rsi < 20:
+        adjustment = random.uniform(0, 0.001 * forecast_mean)  # Tăng từ 0% đến 0.1%
+    else:
+        adjustment = 0  # Giữ nguyên
+
+    adjusted_price = forecast_mean + adjustment
+
+    # Adjust forecasted price based on volume changes
+    if len(df) >= 2:
+        volume_change = (df['volume'].iloc[-1] - df['volume'].iloc[-2]) / df['volume'].iloc[-2]
+        price_change = df['close'].iloc[-1] - df['close'].iloc[-2]
+        
+        if volume_change >= 0.2:
+            if price_change > 0:
+                # Volume increased by 20% or more and price increased
+                volume_adjustment = random.uniform(0, 0.01 * adjusted_price)  # Tăng từ 0% đến 1%
+                adjusted_price += volume_adjustment
+            elif price_change < 0:
+                # Volume increased by 20% or more and price decreased
+                volume_adjustment = random.uniform(-0.01 * adjusted_price, 0)  # Giảm từ 0% đến 1%
+                adjusted_price += volume_adjustment
+
+    # Store the forecasted price
+    forecast_price[token] = adjusted_price
+
+    logging.info(f"Forecasted price for {token}: {forecast_price[token]}")
+
+    time_end = datetime.now()
+    logging.info(f"Time elapsed forecast: {time_end - time_start}")
 
 def update_data():
     """
