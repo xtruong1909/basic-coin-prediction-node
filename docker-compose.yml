@@ -1,55 +1,63 @@
-services:
-  inference:
-    container_name: inference
-    build:
-      context: .
-    command: gunicorn --config /app/gunicorn_conf.py app:app
-    ports:
-      - "8011:8011"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8011/inference/ETH || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 600s  # Tăng thời gian chờ trước khi bắt đầu kiểm tra
-    volumes:
-      - ./inference-data:/app/data
-    environment:
-      - LOGGING_LEVEL=INFO
-      - WORKERS=2  # Define number of workers for gunicorn
-      - THREADS=4  # Define number of threads per worker
+import json
+import logging
+from flask import Flask, Response
+from model import download_data, format_data, train_model, forecast_price
 
-  updater:
-    container_name: updater
-    build: .
-    environment:
-      - INFERENCE_API_ADDRESS=http://inference:8011
-    command: >
-      sh -c "
-      while true; do
-        python -u /app/update_app.py;
-        sleep 600;
-      done
-      "
-    depends_on:
-      inference:
-        condition: service_healthy
-    volumes:
-      - ./inference-data:/app/data
+app = Flask(__name__)
 
-  worker:
-    container_name: worker
-    image: alloranetwork/allora-offchain-node:latest
-    volumes:
-      - ./worker-data:/data
-    working_dir: /data
-    depends_on:
-      inference:
-        condition: service_healthy
-    env_file:
-      - ./worker-data/env_file
-    entrypoint: ["/node/allora_offchain_node"]
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-volumes:
-  inference-data:
-  worker-data:
+def update_data():
+    """Download price data, format data and train model."""
+    tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
+    for token in tokens:
+        try:
+            logging.info(f"Updating data for token: {token}")
+            download_data(token)
+            format_data(token)
+            train_model(token)
+            logging.info(f"Successfully updated data for token: {token}")
+        except Exception as e:
+            logging.error(f"Error updating data for token {token}: {e}")
+
+def get_token_inference(token):
+    try:
+        inference = forecast_price.get(token, 0)
+        logging.info(f"Inference for token {token}: {inference}")
+        return inference
+    except Exception as e:
+        logging.error(f"Error generating inference for token {token}: {e}")
+        return 0
+
+@app.route("/inference/<string:token>")
+def generate_inference(token):
+    """Generate inference for given token."""
+    if not token or token not in ["ETH", "BTC", "BNB", "SOL", "ARB"]:
+        error_msg = "Token is required" if not token else "Token not supported"
+        logging.warning(f"Inference request failed: {error_msg}")
+        return Response(json.dumps({"error": error_msg}), status=400, mimetype='application/json')
+
+    try:
+        inference = get_token_inference(token)
+        return Response(json.dumps({"token": token, "forecast_price": inference}), status=200, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error generating inference: {e}")
+        return Response(json.dumps({"error": str(e)}), status=500, mimetype='application/json')
+
+@app.route("/update")
+def update():
+    """Update data and return status."""
+    try:
+        update_data()
+        return Response(json.dumps({"status": "success"}), status=200, mimetype='application/json')
+    except Exception as e:
+        logging.error(f"Error during update: {e}")
+        return Response(json.dumps({"status": "failure", "error": str(e)}), status=500, mimetype='application/json')
+
+if __name__ == "__main__":
+    try:
+        update_data()
+    except Exception as e:
+        logging.error(f"Initial data update failed: {e}")
+    app.run(host="0.0.0.0", port=8011)
