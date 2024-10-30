@@ -19,8 +19,8 @@ forecast_price = {}
 
 # Path to store Binance data
 binance_data_path = os.path.join(data_base_path, "binance/futures-klines")
-MAX_DATA_SIZE = 5000  # Increase the limit of data stored for better model training
-INITIAL_FETCH_SIZE = 5000  # Increase initial fetch size to capture more historical data
+MAX_DATA_SIZE = 1500  # Limit data size to comply with Binance API constraints
+INITIAL_FETCH_SIZE = 1000  # Initial fetch size limited to avoid exceeding Binance API limits
 
 @retrying.retry(wait_exponential_multiplier=1000, wait_exponential_max=10000, stop_max_attempt_number=5)
 def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
@@ -30,7 +30,7 @@ def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=No
     Parameters:
         symbol (str): Symbol for which data is to be fetched.
         interval (str): Time interval for the data.
-        limit (int): Number of data points to fetch.
+        limit (int): Number of data points to fetch (maximum 1500).
         start_time (int): Start time in milliseconds.
         end_time (int): End time in milliseconds.
     
@@ -43,7 +43,7 @@ def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=No
         params = {
             "symbol": symbol,
             "interval": interval,
-            "limit": limit
+            "limit": min(limit, 1500)  # Ensure limit does not exceed 1500
         }
         if start_time:
             params['startTime'] = start_time
@@ -99,12 +99,12 @@ def download_data(token):
         # If data already exists, fetch the most recent data
         start_time = int((current_datetime - timedelta(minutes=500)).timestamp() * 1000)
         end_time = int(current_datetime.timestamp() * 1000)
-        new_data = fetch_prices(symbols, interval, 100, start_time, end_time)
+        new_data = fetch_prices(symbols, interval, limit=1000, start_time=start_time, end_time=end_time)
     else:
         # If no data exists, fetch initial data
         start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE * 5)).timestamp() * 1000)
         end_time = int(current_datetime.timestamp() * 1000)
-        new_data = fetch_prices(symbols, interval, INITIAL_FETCH_SIZE, start_time, end_time)
+        new_data = fetch_prices(symbols, interval, limit=INITIAL_FETCH_SIZE, start_time=start_time, end_time=end_time)
 
     # Create DataFrame from fetched data
     new_df = pd.DataFrame(new_data, columns=[
@@ -225,48 +225,4 @@ def train_model(token):
     # Adjust forecasted price based on volume changes
     if len(df) >= 2:
         volume_change = (df['volume'].iloc[-1] - df['volume'].iloc[-2]) / df['volume'].iloc[-2]
-        price_change = df['close'].iloc[-1] - df['close'].iloc[-2]
-        
-        if volume_change >= 0.2:
-            if price_change > 0:
-                # Volume increased by 20% or more and price increased
-                volume_adjustment = random.uniform(0, 0.01 * adjusted_price)  # Tăng từ 0% đến 1%
-                adjusted_price += volume_adjustment
-            elif price_change < 0:
-                # Volume increased by 20% or more and price decreased
-                volume_adjustment = random.uniform(-0.01 * adjusted_price, 0)  # Giảm từ 0% đến 1%
-                adjusted_price += volume_adjustment
-
-    # Store the forecasted price
-    forecast_price[token] = adjusted_price
-
-    logging.info(f"Forecasted price for {token}: {forecast_price[token]}")
-
-    time_end = datetime.now()
-    logging.info(f"Time elapsed forecast: {time_end - time_start}")
-
-def update_data():
-    """
-    Download, format, and train models for a list of tokens.
-    """
-    tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
-    with ThreadPoolExecutor(max_workers=len(tokens)) as executor:
-        executor.map(lambda token: update_single_token(token), tokens)
-
-def update_single_token(token):
-    """
-    Update data, format, and train the model for a single token.
-    
-    Parameters:
-        token (str): The token to update.
-    """
-    try:
-        logging.info(f"Updating data for token: {token}")
-        download_data(token)
-        format_data(token)
-        train_model(token)
-    except Exception as e:
-        logging.error(f"Error updating data for {token}: {e}")
-
-if __name__ == "__main__":
-    update_data()
+        price_change = df['close'].iloc[-1] - df['close'].iloc
