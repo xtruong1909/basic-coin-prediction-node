@@ -2,8 +2,8 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 import numpy as np
-from sklearn.linear_model import BayesianRidge
-from config import data_base_path  # Import từ config.py
+from sklearn.linear_model import ElasticNet
+from config import data_base_path
 import random
 import requests
 import retrying
@@ -19,7 +19,7 @@ INITIAL_FETCH_SIZE = 1000  # Số lượng nến lần đầu tải về
 def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=None):
     try:
         base_url = "https://fapi.binance.com"
-        endpoint = "/fapi/v1/klines"
+        endpoint = f"/fapi/v1/klines"
         params = {
             "symbol": symbol,
             "interval": interval,
@@ -35,7 +35,7 @@ def fetch_prices(symbol, interval="1m", limit=1000, start_time=None, end_time=No
         response.raise_for_status()
         return response.json()
     except Exception as e:
-        print(f'Lỗi khi tải giá cho {symbol} từ Binance API: {str(e)}')
+        print(f'Failed to fetch prices for {symbol} from Binance API: {str(e)}')
         raise e
 
 def download_data(token):
@@ -51,7 +51,7 @@ def download_data(token):
         end_time = int(current_datetime.timestamp() * 1000)
         new_data = fetch_prices(symbols, interval, 100, start_time, end_time)
     else:
-        start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE * 5)).timestamp() * 1000)
+        start_time = int((current_datetime - timedelta(minutes=INITIAL_FETCH_SIZE*5)).timestamp() * 1000)
         end_time = int(current_datetime.timestamp() * 1000)
         new_data = fetch_prices(symbols, interval, INITIAL_FETCH_SIZE, start_time, end_time)
 
@@ -74,14 +74,24 @@ def download_data(token):
     if not os.path.exists(download_path):
         os.makedirs(download_path)
     combined_df.to_csv(file_path, index=False)
-    print(f"Dữ liệu cho {token} đã được cập nhật và lưu tại {file_path}. Tổng số dòng: {len(combined_df)}")
+    print(f"Updated data for {token} saved to {file_path}. Total rows: {len(combined_df)}")
+
+def calculate_rsi(df, window=14):
+    delta = df['close'].diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
 
 def format_data(token):
     path = os.path.join(binance_data_path, token.lower())
     file_path = os.path.join(path, f"{token.lower()}_5m_data.csv")
 
     if not os.path.exists(file_path):
-        print(f"Không tìm thấy tệp dữ liệu cho {token}")
+        print(f"No data file found for {token}")
         return
 
     df = pd.read_csv(file_path)
@@ -102,16 +112,18 @@ def format_data(token):
         df.index = pd.to_datetime(df["start_time"], unit='ms')
         df.index.name = "date"
 
+        df['rsi'] = calculate_rsi(df)
+
         output_path = os.path.join(data_base_path, f"{token.lower()}_price_data.csv")
         df.sort_index().to_csv(output_path)
-        print(f"Dữ liệu đã được định dạng và lưu tại {output_path}")
+        print(f"Formatted data saved to {output_path}")
     else:
-        print(f"Các cột yêu cầu bị thiếu trong {file_path}. Bỏ qua tệp này.")
+        print(f"Required columns are missing in {file_path}. Skipping this file.")
 
 def get_random_fluctuation(predicted_price):
     current_time = datetime.now(pytz.timezone('Asia/Bangkok'))
     hour = current_time.hour
-    day_of_week = current_time.weekday()  # 0: Thứ Hai, 6: Chủ Nhật
+    day_of_week = current_time.weekday()  # 0: Monday, 6: Sunday
 
     if (day_of_week in [5, 6] and (hour >= 19 or hour < 7)):  # Thứ 7 và Chủ nhật
         fluctuation_percentage = random.uniform(-0.0015, 0.0015)
@@ -121,6 +133,29 @@ def get_random_fluctuation(predicted_price):
         fluctuation_percentage = random.uniform(-0.0005, 0.0005)
 
     return predicted_price * (1 + fluctuation_percentage)
+
+def adjust_price_with_rsi(predicted_price, rsi):
+    if rsi > 80:
+        adjustment = random.uniform(-0.001, 0) * predicted_price
+    elif rsi < 20:
+        adjustment = random.uniform(0, 0.001) * predicted_price
+    else:
+        adjustment = 0
+    return predicted_price + adjustment
+
+def adjust_price_with_volume(predicted_price, df):
+    if len(df) >= 2:
+        prev_volume = df.iloc[-2]['volume']
+        prev_price = df.iloc[-2]['close']
+        prev_prev_price = df.iloc[-3]['close'] if len(df) >= 3 else prev_price
+        volume_increase = (prev_volume - df.iloc[-3]['volume']) / df.iloc[-3]['volume'] if len(df) >= 3 else 0
+
+        if volume_increase >= 0.2:
+            if prev_price > prev_prev_price:
+                predicted_price += random.uniform(0, 0.01) * predicted_price
+            elif prev_price < prev_prev_price:
+                predicted_price -= random.uniform(0, 0.01) * predicted_price
+    return predicted_price
 
 def train_model(token):
     time_start = datetime.now()
@@ -132,18 +167,27 @@ def train_model(token):
     X = np.array(range(len(df))).reshape(-1, 1)
     y = df['close'].values
 
-    model = BayesianRidge()
+    model = ElasticNet(alpha=1.0, l1_ratio=0.5)
     model.fit(X, y)
 
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
 
+    # Thêm biên độ ngẫu nhiên
     price_predict = get_random_fluctuation(predicted_price)
+
+    # Điều chỉnh theo RSI
+    rsi = df['rsi'].iloc[-1]
+    price_predict = adjust_price_with_rsi(price_predict, rsi)
+
+    # Điều chỉnh theo volume
+    price_predict = adjust_price_with_volume(price_predict, df)
+
     forecast_price[token] = price_predict
 
-    print(f"Giá dự đoán cho {token}: {forecast_price[token]}")
+    print(f"Forecasted price for {token}: {forecast_price[token]}")
     time_end = datetime.now()
-    print(f"Thời gian dự đoán: {time_end - time_start}")
+    print(f"Time elapsed forecast: {time_end - time_start}")
 
 def update_data():
     tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
