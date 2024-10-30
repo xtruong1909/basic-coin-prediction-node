@@ -208,21 +208,4 @@ def train_model(token):
     # Forecast the next value
     forecast_steps = 1
     forecast = sarima_model.get_forecast(steps=forecast_steps, exog=df[['volume']].iloc[-forecast_steps:])
-    forecast_mean = forecast.predicted_mean.iloc[-1]
-
-    # Adjust forecasted price based on RSI
-    latest_rsi = df['rsi'].iloc[-1]
-    
-    if latest_rsi > 80:
-        adjustment = random.uniform(-0.001 * forecast_mean, 0)  # Giảm từ 0% đến 0.1%
-    elif latest_rsi < 20:
-        adjustment = random.uniform(0, 0.001 * forecast_mean)  # Tăng từ 0% đến 0.1%
-    else:
-        adjustment = 0  # Giữ nguyên
-
-    adjusted_price = forecast_mean + adjustment
-
-    # Adjust forecasted price based on volume changes
-    if len(df) >= 2:
-        volume_change = (df['volume'].iloc[-1] - df['volume'].iloc[-2]) / df['volume'].iloc[-2]
-        price_change = df['close'].iloc[-1] - df['close'].iloc
+    forecast_mean = forecast.predicted_mean.iloc[-1
