@@ -76,6 +76,16 @@ def download_data(token):
     combined_df.to_csv(file_path, index=False)
     print(f"Updated data for {token} saved to {file_path}. Total rows: {len(combined_df)}")
 
+def calculate_rsi(df, window=14):
+    delta = df['close'].diff(1)
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
 def format_data(token):
     path = os.path.join(binance_data_path, token.lower())
     file_path = os.path.join(path, f"{token.lower()}_5m_data.csv")
@@ -102,6 +112,8 @@ def format_data(token):
         df.index = pd.to_datetime(df["start_time"], unit='ms')
         df.index.name = "date"
 
+        df['rsi'] = calculate_rsi(df)
+
         output_path = os.path.join(data_base_path, f"{token.lower()}_price_data.csv")
         df.sort_index().to_csv(output_path)
         print(f"Formatted data saved to {output_path}")
@@ -122,6 +134,29 @@ def get_random_fluctuation(predicted_price):
 
     return predicted_price * (1 + fluctuation_percentage)
 
+def adjust_price_with_rsi(predicted_price, rsi):
+    if rsi > 80:
+        adjustment = random.uniform(-0.001, 0) * predicted_price
+    elif rsi < 20:
+        adjustment = random.uniform(0, 0.001) * predicted_price
+    else:
+        adjustment = 0
+    return predicted_price + adjustment
+
+def adjust_price_with_volume(predicted_price, df):
+    if len(df) >= 2:
+        prev_volume = df.iloc[-2]['volume']
+        prev_price = df.iloc[-2]['close']
+        prev_prev_price = df.iloc[-3]['close'] if len(df) >= 3 else prev_price
+        volume_increase = (prev_volume - df.iloc[-3]['volume']) / df.iloc[-3]['volume'] if len(df) >= 3 else 0
+
+        if volume_increase >= 0.2:
+            if prev_price > prev_prev_price:
+                predicted_price += random.uniform(0, 0.01) * predicted_price
+            elif prev_price < prev_prev_price:
+                predicted_price -= random.uniform(0, 0.01) * predicted_price
+    return predicted_price
+
 def train_model(token):
     time_start = datetime.now()
     price_data = pd.read_csv(os.path.join(data_base_path, f"{token.lower()}_price_data.csv"))
@@ -138,7 +173,16 @@ def train_model(token):
     next_time_index = np.array([[len(df)]])
     predicted_price = model.predict(next_time_index)[0]
 
+    # Thêm biên độ ngẫu nhiên
     price_predict = get_random_fluctuation(predicted_price)
+
+    # Điều chỉnh theo RSI
+    rsi = df['rsi'].iloc[-1]
+    price_predict = adjust_price_with_rsi(price_predict, rsi)
+
+    # Điều chỉnh theo volume
+    price_predict = adjust_price_with_volume(price_predict, df)
+
     forecast_price[token] = price_predict
 
     print(f"Forecasted price for {token}: {forecast_price[token]}")
