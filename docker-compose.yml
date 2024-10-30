@@ -3,22 +3,19 @@ services:
     container_name: inference
     build:
       context: .
-    command: gunicorn --config /app/gunicorn_conf.py app:app
+    command: python -u /app/app.py
     ports:
       - "8011:8011"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8011/inference/ETH || exit 1"]
+      # test: ["CMD", "curl", "-f", "http://localhost:8011/inference/ETH"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8011/inference/ETH || exit 1 && curl -f http://localhost:8011/inference/BTC || exit 1 && curl -f http://localhost:8011/inference/SOL || exit 1 && curl -f http://localhost:8011/inference/BNB || exit 1 && curl -f http://localhost:8011/inference/ARB || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 600s  # Tăng thời gian chờ trước khi bắt đầu kiểm tra
+      start_period: 300s
     volumes:
       - ./inference-data:/app/data
-    environment:
-      - LOGGING_LEVEL=INFO
-      - WORKERS=2  # Define number of workers for gunicorn
-      - THREADS=4  # Define number of threads per worker
-
+  
   updater:
     container_name: updater
     build: .
@@ -28,15 +25,13 @@ services:
       sh -c "
       while true; do
         python -u /app/update_app.py;
-        sleep 600;
+        sleep 300;  # 300 seconds (5 minutes)
       done
       "
     depends_on:
       inference:
         condition: service_healthy
-    volumes:
-      - ./inference-data:/app/data
-
+    
   worker:
     container_name: worker
     image: alloranetwork/allora-offchain-node:latest
