@@ -219,3 +219,8 @@ def train_model(token):
 
     try:
         # Train the SARIMA model including volume as an exogenous variable
+        model = SARIMAX(df['close'], exog=df[['volume']], order=order, seasonal_order=seasonal_order, enforce_stationarity=False, enforce_invertibility=False)
+        sarima_model = model.fit(disp=False)
+
+        # Save the trained model
+        joblib.dump(sarima_model, os.path.join(data_base_path
