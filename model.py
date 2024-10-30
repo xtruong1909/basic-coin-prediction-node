@@ -223,4 +223,73 @@ def train_model(token):
         sarima_model = model.fit(disp=False)
 
         # Save the trained model
-        joblib.dump(sarima_model, os.path.join(data_base_path
+        joblib.dump(sarima_model, os.path.join(data_base_path, f'{token.lower()}_sarima_model.pkl'))
+
+        # Forecast the next value
+        forecast_steps = 1
+        forecast = sarima_model.get_forecast(steps=forecast_steps, exog=df[['volume']].iloc[-forecast_steps:])
+        forecast_mean = forecast.predicted_mean.iloc[-1]
+
+        # Adjust forecasted price based on RSI
+        latest_rsi = df['rsi'].iloc[-1]
+
+        if latest_rsi > 80:
+            adjustment = random.uniform(-0.001 * forecast_mean, 0)  # Giảm từ 0% đến 0.1%
+        elif latest_rsi < 20:
+            adjustment = random.uniform(0, 0.001 * forecast_mean)  # Tăng từ 0% đến 0.1%
+        else:
+            adjustment = 0  # Giữ nguyên
+
+        adjusted_price = forecast_mean + adjustment
+
+        # Adjust forecasted price based on volume changes
+        if len(df) >= 2:
+            volume_change = (df['volume'].iloc[-1] - df['volume'].iloc[-2]) / df['volume'].iloc[-2]
+            price_change = df['close'].iloc[-1] - df['close'].iloc[-2]
+
+            if volume_change >= 0.2:
+                if price_change > 0:
+                    # Volume increased by 20% or more and price increased
+                    volume_adjustment = random.uniform(0, 0.01 * adjusted_price)  # Tăng từ 0% đến 1%
+                    adjusted_price += volume_adjustment
+                elif price_change < 0:
+                    # Volume increased by 20% or more and price decreased
+                    volume_adjustment = random.uniform(-0.01 * adjusted_price, 0)  # Giảm từ 0% đến 1%
+                    adjusted_price += volume_adjustment
+
+        # Store the forecasted price
+        forecast_price[token] = adjusted_price
+
+        logging.info(f"Forecasted price for {token}: {forecast_price[token]}")
+
+        time_end = datetime.now()
+        logging.info(f"Time elapsed forecast: {time_end - time_start}")
+
+    except Exception as e:
+        logging.error(f"An error occurred while fitting the SARIMA model for {token}: {e}")
+
+def update_data():
+    """
+    Download, format, and train models for a list of tokens.
+    """
+    tokens = ["ETH", "BTC", "BNB", "SOL", "ARB"]
+    with ThreadPoolExecutor(max_workers=len(tokens)) as executor:
+        executor.map(lambda token: update_single_token(token), tokens)
+
+def update_single_token(token):
+    """
+    Update data, format, and train the model for a single token.
+    
+    Parameters:
+        token (str): The token to update.
+    """
+    try:
+        logging.info(f"Updating data for token: {token}")
+        download_data(token)
+        format_data(token)
+        train_model(token)
+    except Exception as e:
+        logging.error(f"Error updating data for {token}: {e}")
+
+if __name__ == "__main__":
+    update_data()
