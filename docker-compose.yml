@@ -6,13 +6,6 @@ services:
     command: gunicorn -w 4 -b 0.0.0.0:8011 app:app
     ports:
       - "8011:8011"
-    healthcheck:
-      # test: ["CMD", "curl", "-f", "http://localhost:8011/inference/ETH"]
-      test: ["CMD-SHELL", "curl -f http://localhost:8011/inference/ETH || exit 1 && curl -f http://localhost:8011/inference/BTC || exit 1 && curl -f http://localhost:8011/inference/SOL || exit 1 && curl -f http://localhost:8011/inference/BNB || exit 1 && curl -f http://localhost:8011/inference/ARB || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 300s
     volumes:
       - ./inference-data:/app/data
   
@@ -30,7 +23,7 @@ services:
       "
     depends_on:
       inference:
-        condition: service_healthy
+        condition: service_started
   
   worker:
     container_name: worker
@@ -40,7 +33,7 @@ services:
     working_dir: /data
     depends_on:
       inference:
-        condition: service_healthy
+        condition: service_started
     env_file:
       - ./worker-data/env_file
     entrypoint: ["/node/allora_offchain_node"]
