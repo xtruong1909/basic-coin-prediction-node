@@ -3,7 +3,7 @@ services:
     container_name: inference
     build:
       context: .
-    command: python -u /app/app.py
+    command: gunicorn -w 4 -b 0.0.0.0:8011 app:app
     ports:
       - "8011:8011"
     healthcheck:
