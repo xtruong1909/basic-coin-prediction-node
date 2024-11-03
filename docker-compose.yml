@@ -31,7 +31,7 @@ services:
     depends_on:
       inference:
         condition: service_healthy
-    
+  
   worker:
     container_name: worker
     image: alloranetwork/allora-offchain-node:latest
