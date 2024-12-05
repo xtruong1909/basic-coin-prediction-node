@@ -10,11 +10,6 @@ import retrying
 import joblib
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from statsmodels.tools.sm_exceptions import ConvergenceWarning
-import warnings
-
-# Suppress SARIMAX convergence warnings
-warnings.simplefilter('ignore', ConvergenceWarning)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
